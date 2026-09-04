@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Miliastra Data Editor</title>
+<title>Miliastra Data Editor v12</title>
 <style>
 :root{
   color-scheme:dark;
@@ -74,6 +74,35 @@ code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
 .toolbar{
   display:flex;align-items:center;gap:7px;padding:9px 11px;
   border-bottom:1px solid var(--line);background:#121820;
+}
+.toolbar-search{
+  width:min(260px,24vw);min-width:150px;height:31px;padding:5px 9px
+}
+.autosave-note{font-size:11px;color:var(--muted);align-self:center;white-space:nowrap}
+.visibility-list{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.visibility-row{
+  display:grid;grid-template-columns:minmax(0,1fr) 130px;gap:8px;align-items:center;
+  padding:7px 8px;border:1px solid var(--line);border-radius:6px;background:#0f151d
+}
+.visibility-name{min-width:0}
+.visibility-name strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.visibility-name small{display:block;color:var(--muted);margin-top:2px}
+.visibility-bulk{display:flex;gap:5px;flex-wrap:wrap}
+.visibility-summary{font-size:11px;color:var(--muted)}
+.structure-list-editor{display:flex;flex-direction:column;gap:7px;margin-top:7px}
+.structure-list-row{
+  display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;align-items:center;
+  padding:7px;border:1px solid var(--line);border-radius:6px;background:#0f151d
+}
+.structure-list-value{display:flex;gap:6px;align-items:center;min-width:0}
+.structure-list-value input,.structure-list-value select{min-width:0}
+.structure-vector-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;width:100%}
+.structure-list-actions{display:flex;gap:4px}
+.structure-list-empty{color:var(--muted);font-size:12px;padding:8px;border:1px dashed var(--line);border-radius:6px}
+
+kbd{
+  border:1px solid var(--line2);border-bottom-width:2px;border-radius:4px;
+  padding:1px 4px;background:#111a24;color:var(--muted);font-size:10px
 }
 .spacer{flex:1}
 .count{color:var(--muted);font-size:12px}
@@ -253,7 +282,7 @@ tbody tr.selected{background:#1b2a3c}
 
   <div class="notice">
     <strong>Local only.</strong>
-    Nothing is uploaded. GIA creation uses embedded templates from the two formats we have validated; JSON variables can be created directly from their schema.
+    Nothing is uploaded. The editor supports Single Choice, Tab, Deck Selector, and Structure-definition GIA exports. GIA creation uses embedded templates for the component formats we have validated; JSON variables can be created directly from their schema.
   </div>
 
   <main class="editor-view" id="editorView">
@@ -267,7 +296,10 @@ tbody tr.selected{background:#1b2a3c}
         <button id="batchDeleteButton" disabled title="When enabled, click rows to delete them immediately">Batch Delete: Off</button>
         <span style="width:8px"></span>
         <button id="upButton" class="icon" disabled title="Move up">↑</button>
-        <button id="downButton" class="icon" disabled title="Move down">↓</button>
+        <button id="downButton" class="icon" disabled title="Move down (Alt+Down)">↓</button>
+        <span style="width:4px"></span>
+        <input id="giaFilterInput" class="toolbar-search" type="search" placeholder="Filter rows…  Ctrl+F" autocomplete="off">
+        <button id="clearGiaFilterButton" class="small" disabled title="Clear row filter (Esc)">Clear</button>
         <div class="spacer"></div>
         <span class="count" id="itemCount">0 items</span>
       </div>
@@ -314,6 +346,18 @@ tbody tr.selected{background:#1b2a3c}
           <tbody id="deckBody"></tbody>
         </table>
 
+        <table id="structureTable" class="hidden">
+          <thead>
+            <tr>
+              <th class="col-num">#</th>
+              <th class="col-mid">Field Name</th>
+              <th class="col-mid">Type</th>
+              <th>Default</th>
+            </tr>
+          </thead>
+          <tbody id="structureBody"></tbody>
+        </table>
+
         <div id="jsonSurface" class="json-surface hidden"></div>
       </div>
     </section>
@@ -326,7 +370,7 @@ tbody tr.selected{background:#1b2a3c}
         </div>
 
         <div id="singleInspector" class="hidden">
-          <h2>List Item</h2>
+          <h2 id="listItemInspectorTitle">List Item</h2>
           <div class="field">
             <label>List Item Name</label>
             <input id="singleInternalName">
@@ -341,13 +385,46 @@ tbody tr.selected{background:#1b2a3c}
 
           <div class="meta">
             <div class="meta-row">
-              <span>Formal Variables</span>
+              <span>Formal Variables <span class="autosave-note">names max 20</span></span>
               <button id="addFormalVariableButton" class="small">Add Variable</button>
             </div>
             <div id="formalVariableEditor"></div>
           </div>
 
-          <div class="meta">
+          <div id="tabVisibilityEditor" class="hidden">
+            <div class="meta">
+              <div class="meta-row">
+                <span>Control Container Visibility</span>
+                <div class="visibility-bulk">
+                  <button id="tabContainersShowAll" class="small">Show All</button>
+                  <button id="tabContainersHideAll" class="small">Hide All</button>
+                  <button id="tabContainersClear" class="small">Clear</button>
+                </div>
+              </div>
+              <div class="visibility-summary" id="tabContainerVisibilitySummary"></div>
+              <div id="tabContainerVisibilityList" class="visibility-list"></div>
+            </div>
+
+            <div class="meta">
+              <div class="meta-row">
+                <span>Control Visibility</span>
+                <div class="visibility-bulk">
+                  <button id="tabControlsShowAll" class="small">Show All</button>
+                  <button id="tabControlsHideAll" class="small">Hide All</button>
+                  <button id="tabControlsClear" class="small">Clear</button>
+                </div>
+              </div>
+              <div class="visibility-summary" id="tabControlVisibilitySummary"></div>
+              <div id="tabControlVisibilityList" class="visibility-list"></div>
+            </div>
+
+            <div class="help">
+              <b>Unchanged</b> means this Tab item has no visibility override for that target.
+              <b>Show</b> and <b>Hide</b> are written independently for Control Containers and regular Controls.
+            </div>
+          </div>
+
+          <div class="meta" id="singleChoiceSettingsPanel">
             <div class="meta-row"><span>Single Choice Settings</span><span></span></div>
             <div class="inline2">
               <div class="field">
@@ -399,9 +476,65 @@ tbody tr.selected{background:#1b2a3c}
           <div class="field"><label>Deck Description</label><textarea id="deckDescription"></textarea></div>
         </div>
 
+        <div id="structureInspector" class="hidden">
+          <h2>Structure Definition</h2>
+
+          <div class="field">
+            <label>Structure Name</label>
+            <input id="structureName">
+          </div>
+
+          <div class="field">
+            <label>Structure ID</label>
+            <div class="row">
+              <input id="structureId" inputmode="numeric" disabled>
+              <button id="generateStructureIdButton" class="small" disabled>Generate ID</button>
+            </div>
+            <div class="autosave-note" id="structureIdHex"></div>
+          </div>
+
+          <hr>
+
+          <div class="field">
+            <label>Selected Field Name <span class="autosave-note">max 20</span></label>
+            <input id="structureFieldName" maxlength="20" title="Variable names are limited to 20 characters.">
+          </div>
+
+          <div class="inline2">
+            <div class="field">
+              <label>Field Type</label>
+              <select id="structureFieldType" disabled></select>
+            </div>
+            <div class="field">
+              <label>Type Code</label>
+              <input id="structureFieldTypeCode" disabled>
+            </div>
+          </div>
+
+          <div class="field" id="structureScalarDefaultField">
+            <label>Default Value</label>
+            <input id="structureFieldDefault" disabled>
+          </div>
+
+          <div id="structureListDefaultPanel" class="hidden">
+            <div class="meta">
+              <div class="meta-row">
+                <span>List Default Items</span>
+                <button id="structureListAddButton" class="small">+ Add Item</button>
+              </div>
+              <div id="structureListEditor" class="structure-list-editor"></div>
+            </div>
+          </div>
+
+          <div class="help" id="structureGiaHelp">
+            Imported Structure GIAs preserve their existing generated metadata and currently allow safe renaming.
+          </div>
+        </div>
+
         <div id="giaInspectorActions" class="inspector-actions hidden">
-          <button id="applyGiaButton" class="primary">Apply Changes</button>
-          <button id="revertGiaButton">Revert Fields</button>
+          <span class="autosave-note">Edits apply automatically — no confirmation needed.</span>
+          <button id="applyGiaButton" class="hidden">Apply</button>
+          <button id="revertGiaButton" class="hidden">Refresh Fields</button>
         </div>
 
         <div id="jsonRawInspector" class="raw-panel hidden">
@@ -453,10 +586,34 @@ tbody tr.selected{background:#1b2a3c}
             <p>Starts with one blank deck row using the validated Deck Selector component structure and its required internal index list.</p>
             <button class="primary" id="newDeckButton">Create Deck Selector GIA</button>
           </div>
+
+          <div class="build-card">
+            <span class="badge">Template-based GIA</span>
+            <h3>Floating Page + Tab</h3>
+            <p>Creates a plain Floating Interaction Page with the required Close Button and one Tab component. Define Floating Page Formal Variables, then add, duplicate, delete, and reorder Tab items.</p>
+            <button class="primary" id="newTabButton">Create Tab Page GIA</button>
+          </div>
+
+          <div class="build-card">
+            <span class="badge">Generated Structure GIA</span>
+            <h3>Structure Definition</h3>
+            <p>Creates a Structure GIA with one String field, then lets you rapidly add, duplicate, delete, reorder, rename, and change field types.</p>
+            <button class="primary" id="newStructureGiaButton">Create Structure GIA</button>
+          </div>
         </div>
         <div class="build-note" style="margin-top:12px">
           New GIA files use embedded copies of the component exports we already proved can be resized and re-imported.
           This avoids fabricating the many still-unknown UI metadata fields.
+        </div>
+      </section>
+
+      <section class="build-section">
+        <h2>Verified Structure GIA Types</h2>
+        <div class="build-note">
+          <b>Scalar:</b> Entity, Guid, Int32, Bool, Float, String, Vector3, Army, ConfigReference, EntityReference<br>
+          <b>Lists:</b> GuidList, Int32List, BoolList, FloatList, StringList, EntityList, Vector3List, ConfigReferenceList, EntityReferenceList, ArmyList<br>
+          <b>Containers:</b> Struct, StructList, Dict<br>
+          <span class="muted">StructList is confirmed as GIA type code 26. Build New currently keeps Struct / StructList reference fields out of the type picker until referenced-Structure dependency handling is generalized.</span>
         </div>
       </section>
 
@@ -492,6 +649,11 @@ tbody tr.selected{background:#1b2a3c}
   <footer class="statusbar">
     <span class="status-dot" id="statusDot"></span>
     <span id="statusText">Open a file or create a new one.</span>
+    <div class="spacer"></div>
+    <span class="autosave-note">
+      <kbd>Ctrl+S</kbd> Export · <kbd>Ctrl+F</kbd> Filter · <kbd>Ctrl+D</kbd> Duplicate ·
+      <kbd>Ins</kbd> Add · <kbd>↑/↓</kbd> Select · <kbd>Alt+↑/↓</kbd> Move
+    </span>
   </footer>
 </div>
 
@@ -527,9 +689,14 @@ const textDecoder = new TextDecoder("utf-8", {fatal:false});
 const textEncoder = new TextEncoder();
 
 const EMBEDDED_GIA = {
+  tab: "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",
   singleChoice: "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",
   deckSelector: "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Y2VtZW50UP///wcKcQgIEAEYu78FIjeqHzRSZWxvYWQgd2l0aG91dCB3b3JyeWluZyBhYm91dCBiZWluZyBwdW5jaGVkIG9yIHNob3QhMAFCF6ofFERpc2FibGUgSW50ZXJydXB0aW9uSg6qHwtFbmhhbmNlbWVudFD///8HCncICRABGNO/BSJGqh9DWW91IGNhbm5vdCBlcXVpcCB3ZWFwb25zLiBHZXQgYSBuZXcgbG9hZG91dCBldmVyeSB0aW1lIHlvdSByZXNwYXduLjACQhKqHw9SYW5kb20gTG9hZG91dHNKCqofB05ldXRyYWxQ////BwpZCAoQARj+xgUiIKofHVdobyBuZWVkcyBoaWdoIGRhbWFnZSBhbnl3YXk/MAJCGqofF0Rpc2FibGUgUHJpbWFyeSBXZWFwb25zSgqqHwdOZXV0cmFsUP///wcKeggLEAEYmr8FIkaqH0NXZWFwb24gc3RhbmRzIGhhdmUgbGltaXRlZCBzdG9jayBhbmQgVXRpbGl0eSBpcyBubyBsb25nZXIgaW5maW5pdGUhMAlCEqofD0xpbWl0ZWQgVXRpbGl0eUoNqh8KSW1wYWlybWVudFD///8HCmIIDBABGJfHBSIsqh8pVG8gY29tcGVuc2F0ZSwgTW92ZSBTcGVlZCBpcyBzZXQgdG8gMTQwJS4wCUIUqh8RRGlzYWJsZSBTcHJpbnRpbmdKDaofCkltcGFpcm1lbnRQ////BwpPCA0QARihvwUiG6ofGE5vIG1vcmUgRm9ydG5pdGUgc3RyYXRzITAJQhKqHw9EaXNhYmxlIEp1bXBpbmdKDaofCkltcGFpcm1lbnRQ////BwpbCA4QARiTxwUiJqofI1NuaXBlciBtYWlucyB3aWxsIGhhdmUgYSBiYWQgdGltZS4uMAlCE6ofEERpc2FibGUgQ2xpbWJpbmdKDaofCkltcGFpcm1lbnRQ////BwprCA8QARjrzgUiMqofL1lvdSB3aWxsIG5vdCBwYXNzaXZlbHkgcmVnZW5lcmF0ZSBIUCBvdmVyIHRpbWUuMAlCF6ofFERpc2FibGUgUmVnZW5lcmF0aW9uSg2qHwpJbXBhaXJtZW50UP///wcKbAgQEAEYoMcFIjWqHzJDYXJlZnVsIHdoZXJlIHlvdSBjbGltYiBpZiBnbGlkaW5nIGlzIG5vdCBlbmFibGVkITAJQhWqHxJFbmFibGUgRmFsbCBEYW1hZ2VKDaofCkltcGFpcm1lbnRQ////BwpMCBEQARicxwUiGqofF0hvcGUgeW91IGNhbiBhaW0gd2VsbC4uMAlCEKofDURpc2FibGUgUHVuY2hKDaofCkltcGFpcm1lbnRQ////BwpSCBIQARipvwUiHqofG05vIG5lZWQgZm9yIGV4dHJhIHRhY3RpY3MuLjAJQhKqHw9EaXNhYmxlIFV0aWxpdHlKDaofCkltcGFpcm1lbnRQ////B8gf5vEPqB8RsB8huB8Bwh8KEAEYCCD604OABBo7NjAxNjc1NDU3LTE3ODgzODQ5MDctMTA3Mzc0MTk0My1cTW9kaWZpZXIgRGVjayBTZWxlY3Rvci5naWEqBTcuMC4wAAAGeQ=="
 };
+
+const STRUCTURE_BUILD_BASE_GIA = "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";
+const STRUCTURE_BUILD_TOGGLE_TEMPLATE = "ChvmmK/lkKborr7nva5fQWRkIHZhcmlhYmxlIDEQARoECAMQAiIJCAYgBKoGAggBKgIIDkCmGA==";
+const STRUCTURE_BUILD_TEMPLATES = {"1":{"field":"CgQIARIAGgoIARIECAESAFoAKg9BZGQgdmFyaWFibGUgMTGqHw9BZGQgdmFyaWFibGUgMTGwHwG4Hws=","assemble":"Cg9BZGQgdmFyaWFibGUgMTEQARoECAMQCiIEGAEgAUCxFw==","split":"Cg9BZGQgdmFyaWFibGUgMTEQARoECAQQCiIEGAEgAUCPGA==","modify":"Cg9BZGQgdmFyaWFibGUgMTEQARoECAMQFSIEGAEgASoCCA9AvRg="},"2":{"field":"CgQIAhIAGgoIAhIECAISAGIAKg9BZGQgdmFyaWFibGUgMTOqHw9BZGQgdmFyaWFibGUgMTOwHwK4Hw0=","assemble":"Cg9BZGQgdmFyaWFibGUgMTMQARoECAMQDCIGCAEYAiACQLMX","split":"Cg9BZGQgdmFyaWFibGUgMTMQARoECAQQDCIGCAEYAiACQJEY","modify":"Cg9BZGQgdmFyaWFibGUgMTMQARoECAMQGSIGCAEYAiACKgIID0DBGA=="},"3":{"field":"CgQIAxIAGgoIAxIECAMSAGoAKg5BZGQgdmFyaWFibGUgM6ofDkFkZCB2YXJpYWJsZSAzsB8DuB8D","assemble":"Cg5BZGQgdmFyaWFibGUgMxABGgQIAxACIgYIAhgDIANAihc=","split":"Cg5BZGQgdmFyaWFibGUgMxABGgQIBBACIgYIAhgDIANA8xc=","modify":"Cg5BZGQgdmFyaWFibGUgMxABGgQIAxAFIgYIAhgDIAMqAggPQK0Y"},"4":{"field":"CgQIBBIAGgoIBBIECAQSAHIAKg5BZGQgdmFyaWFibGUgN6ofDkFkZCB2YXJpYWJsZSA3sB8EuB8H","assemble":"Cg5BZGQgdmFyaWFibGUgNxABGgQIAxAGIgsIBhgEIASqBgIIAUCtFw==","split":"Cg5BZGQgdmFyaWFibGUgNxABGgQIBBAGIgsIBhgEIASqBgIIAUD3Fw==","modify":"Cg5BZGQgdmFyaWFibGUgNxABGgQIAxANIgsIBhgEIASqBgIIASoCCA9AtRg="},"5":{"field":"CgQIBRIAGgoIBRIECAUSAHoAKg5BZGQgdmFyaWFibGUgNaofDkFkZCB2YXJpYWJsZSA1sB8FuB8F","assemble":"Cg5BZGQgdmFyaWFibGUgNRABGgQIAxAEIgYIBBgFIAVAlRc=","split":"Cg5BZGQgdmFyaWFibGUgNRABGgQIBBAEIgYIBBgFIAVA9Rc=","modify":"Cg5BZGQgdmFyaWFibGUgNRABGgQIAxAJIgYIBBgFIAUqAggPQLEY"},"6":{"field":"CgQIBhIAGgsIBhIECAYSAIIBACoOQWRkIHZhcmlhYmxlIDGqHw5BZGQgdmFyaWFibGUgMbAfBrgfAQ==","assemble":"Cg5BZGQgdmFyaWFibGUgMRABGgIIAyIGCAUYBiAGQIgX","split":"Cg5BZGQgdmFyaWFibGUgMRABGgIIBCIGCAUYBiAGQOMX","modify":"Cg5BZGQgdmFyaWFibGUgMRABGgQIAxABIgYIBRgGIAYqAggPQKUY"},"7":{"field":"CgQIBxIAGgsIBxIECAcSAIoBACoPQWRkIHZhcmlhYmxlIDE0qh8PQWRkIHZhcmlhYmxlIDE0sB8HuB8O","assemble":"Cg9BZGQgdmFyaWFibGUgMTQQARoECAMQDSISCJJOGAcgB7IGCAoGCAEYAiACQLQX","split":"Cg9BZGQgdmFyaWFibGUgMTQQARoECAQQDSISCJJOGAcgB7IGCAoGCAEYAiACQJIY","modify":"Cg9BZGQgdmFyaWFibGUgMTQQARoECAMQGyISCJJOGAcgB7IGCAoGCAEYAiACKgIID0DDGA=="},"8":{"field":"CgQICBIAGgsICBIECAgSAJIBACoOQWRkIHZhcmlhYmxlIDSqHw5BZGQgdmFyaWFibGUgNLAfCLgfBA==","assemble":"Cg5BZGQgdmFyaWFibGUgNBABGgQIAxADIhIIkk4YCCAIsgYICgYIAhgDIANAixc=","split":"Cg5BZGQgdmFyaWFibGUgNBABGgQIBBADIhIIkk4YCCAIsgYICgYIAhgDIANA9Bc=","modify":"Cg5BZGQgdmFyaWFibGUgNBABGgQIAxAHIhIIkk4YCCAIsgYICgYIAhgDIAMqAggPQK8Y"},"9":{"field":"CgQICRIAGgsICRIECAkSAJoBACoOQWRkIHZhcmlhYmxlIDiqHw5BZGQgdmFyaWFibGUgOLAfCbgfCA==","assemble":"Cg5BZGQgdmFyaWFibGUgOBABGgQIAxAHIhcIkk4YCSAJsgYNCgsIBhgEIASqBgIIAUCuFw==","split":"Cg5BZGQgdmFyaWFibGUgOBABGgQIBBAHIhcIkk4YCSAJsgYNCgsIBhgEIASqBgIIAUD4Fw==","modify":"Cg5BZGQgdmFyaWFibGUgOBABGgQIAxAPIhcIkk4YCSAJsgYNCgsIBhgEIASqBgIIASoCCA9Atxg="},"10":{"field":"CgQIChIAGgsIChIECAoSAKIBACoOQWRkIHZhcmlhYmxlIDaqHw5BZGQgdmFyaWFibGUgNrAfCrgfBg==","assemble":"Cg5BZGQgdmFyaWFibGUgNhABGgQIAxAFIhIIkk4YCiAKsgYICgYIBBgFIAVArBc=","split":"Cg5BZGQgdmFyaWFibGUgNhABGgQIBBAFIhIIkk4YCiAKsgYICgYIBBgFIAVA9hc=","modify":"Cg5BZGQgdmFyaWFibGUgNhABGgQIAxALIhIIkk4YCiAKsgYICgYIBBgFIAUqAggPQLMY"},"11":{"field":"CgQICxIAGgsICxIECAsSAKoBACoOQWRkIHZhcmlhYmxlIDKqHw5BZGQgdmFyaWFibGUgMrAfC7gfAg==","assemble":"Cg5BZGQgdmFyaWFibGUgMhABGgQIAxABIhIIkk4YCyALsgYICgYIBRgGIAZAiRc=","split":"Cg5BZGQgdmFyaWFibGUgMhABGgQIBBABIhIIkk4YCyALsgYICgYIBRgGIAZA8hc=","modify":"Cg5BZGQgdmFyaWFibGUgMhABGgQIAxADIhIIkk4YCyALsgYICgYIBRgGIAYqAggPQKsY"},"12":{"field":"CgQIDBIAGg0IDBIECAwSALIBAgoAKg5BZGQgdmFyaWFibGUgOaofDkFkZCB2YXJpYWJsZSA5sB8MuB8J","assemble":"Cg5BZGQgdmFyaWFibGUgORABGgQIAxAIIgYIBxgMIAxArxc=","split":"Cg5BZGQgdmFyaWFibGUgORABGgQIBBAIIgYIBxgMIAxA+xc=","modify":"Cg5BZGQgdmFyaWFibGUgORABGgQIAxARIgYIBxgMIAwqAggPQLkY"},"13":{"field":"CgQIDRIAGgsIDRIECA0SALoBACoPQWRkIHZhcmlhYmxlIDEyqh8PQWRkIHZhcmlhYmxlIDEysB8NuB8M","assemble":"Cg9BZGQgdmFyaWFibGUgMTIQARoECAMQCyIQCJJOGA0gDbIGBgoEGAEgAUCyFw==","split":"Cg9BZGQgdmFyaWFibGUgMTIQARoECAQQCyIQCJJOGA0gDbIGBgoEGAEgAUCQGA==","modify":"Cg9BZGQgdmFyaWFibGUgMTIQARoECAMQFyIQCJJOGA0gDbIGBgoEGAEgASoCCA9Avxg="},"15":{"field":"CgQIDxIAGgsIDxIECA8SAMoBACoPQWRkIHZhcmlhYmxlIDEwqh8PQWRkIHZhcmlhYmxlIDEwsB8PuB8K","assemble":"Cg9BZGQgdmFyaWFibGUgMTAQARoECAMQCSISCJJOGA8gD7IGCAoGCAcYDCAMQLAX","split":"Cg9BZGQgdmFyaWFibGUgMTAQARoECAQQCSISCJJOGA8gD7IGCAoGCAcYDCAMQI4Y","modify":"Cg9BZGQgdmFyaWFibGUgMTAQARoECAMQEyISCJJOGA8gD7IGCAoGCAcYDCAMKgIID0C7GA=="},"17":{"field":"CgQIERIAGgsIERIECBESANoBACoPQWRkIHZhcmlhYmxlIDE5qh8PQWRkIHZhcmlhYmxlIDE5sB8RuB8T","assemble":"Cg9BZGQgdmFyaWFibGUgMTkQARoECAMQEiIGCAEYESARQNQX","split":"Cg9BZGQgdmFyaWFibGUgMTkQARoECAQQEiIGCAEYESARQJgY","modify":"Cg9BZGQgdmFyaWFibGUgMTkQARoECAMQJSIGCAEYESARKgIID0DNGA=="},"20":{"field":"CgQIFBIAGg0IFBIECBQSAPIBAgoAKg9BZGQgdmFyaWFibGUgMTWqHw9BZGQgdmFyaWFibGUgMTWwHxS4Hw8=","assemble":"Cg9BZGQgdmFyaWFibGUgMTUQARoECAMQDiIGCAEYFCAUQLUX","split":"Cg9BZGQgdmFyaWFibGUgMTUQARoECAQQDiIGCAEYFCAUQJMY","modify":"Cg9BZGQgdmFyaWFibGUgMTUQARoECAMQHSIGCAEYFCAUKgIID0DFGA=="},"21":{"field":"CgQIFRIAGg0IFRIECBUSAPoBAgoAKg9BZGQgdmFyaWFibGUgMTeqHw9BZGQgdmFyaWFibGUgMTewHxW4HxE=","assemble":"Cg9BZGQgdmFyaWFibGUgMTcQARoECAMQECIGCAEYFSAVQNIX","split":"Cg9BZGQgdmFyaWFibGUgMTcQARoECAQQECIGCAEYFSAVQJUY","modify":"Cg9BZGQgdmFyaWFibGUgMTcQARoECAMQISIGCAEYFSAVKgIID0DJGA=="},"22":{"field":"CgQIFhIAGgsIFhIECBYSAIICACoPQWRkIHZhcmlhYmxlIDE2qh8PQWRkIHZhcmlhYmxlIDE2sB8WuB8Q","assemble":"Cg9BZGQgdmFyaWFibGUgMTYQARoECAMQDyISCJJOGBYgFrIGCAoGCAEYFCAUQLwX","split":"Cg9BZGQgdmFyaWFibGUgMTYQARoECAQQDyISCJJOGBYgFrIGCAoGCAEYFCAUQJQY","modify":"Cg9BZGQgdmFyaWFibGUgMTYQARoECAMQHyISCJJOGBYgFrIGCAoGCAEYFCAUKgIID0DHGA=="},"23":{"field":"CgQIFxIAGgsIFxIECBcSAIoCACoPQWRkIHZhcmlhYmxlIDE4qh8PQWRkIHZhcmlhYmxlIDE4sB8XuB8S","assemble":"Cg9BZGQgdmFyaWFibGUgMTgQARoECAMQESISCJJOGBcgF7IGCAoGCAEYFSAVQNMX","split":"Cg9BZGQgdmFyaWFibGUgMTgQARoECAQQESISCJJOGBcgF7IGCAoGCAEYFSAVQJYY","modify":"Cg9BZGQgdmFyaWFibGUgMTgQARoECAMQIyISCJJOGBcgF7IGCAoGCAEYFSAVKgIID0DLGA=="},"24":{"field":"CgQIGBIAGgsIGBIECBgSAJICACoPQWRkIHZhcmlhYmxlIDIwqh8PQWRkIHZhcmlhYmxlIDIwsB8YuB8U","assemble":"Cg9BZGQgdmFyaWFibGUgMjAQARoECAMQEyISCJJOGBggGLIGCAoGCAEYESARQNUX","split":"Cg9BZGQgdmFyaWFibGUgMjAQARoECAQQEyISCJJOGBggGLIGCAoGCAEYESARQJ4Y","modify":"Cg9BZGQgdmFyaWFibGUgMjAQARoECAMQJyISCJJOGBggGLIGCAoGCAEYESARKgIID0DPGA=="},"25":{"field":"CgwIGRIICAEQgYCAggQa0AEIGRIMCBkSCAgBEIGAgIIEmgK8AQoZCBQSBAgUEgDyAQIKAKofCUVmZmVjdCBJRAorCAYSBAgGEgCCAQ0KC0dJX1Jvb3ROb2Rlqh8QQXR0YWNobWVudCBQb2ludAofCAwSBAgMEgCyAQIKAKofD0xvY2F0aW9uIE9mZnNldAocCAUSBAgFEgB6AKofD1pvb20gTXVsdGlwbGllcgohCAQSBAgEEgByAggBqh8SUGxheSBTb3VuZCBFZmZlY3Q/qB+BgICCBLIfCBAcIMmAg4AEKg9BZGQgdmFyaWFibGUgMjGqHw9BZGQgdmFyaWFibGUgMjGwHxm4HxU=","assemble":"Cg9BZGQgdmFyaWFibGUgMjEQARoECAMQFCIQCJFOGBkgGcIGBhCBgICCBEDWFw==","split":"Cg9BZGQgdmFyaWFibGUgMjEQARoECAQQFCIQCJFOGBkgGcIGBhCBgICCBECfGA==","modify":"Cg9BZGQgdmFyaWFibGUgMjEQARoECAMQKSIQCJFOGBkgGcIGBhCBgICCBCoCCA9A0Rg="},"26":{"field":"CgwIGhIICAEQgYCAggQaGggaEgwIGhIICAEQgYCAggSiAgeoH4GAgIIEKg9BZGQgdmFyaWFibGUgMjKqHw9BZGQgdmFyaWFibGUgMjKwHxq4HxY=","assemble":"Cg9BZGQgdmFyaWFibGUgMjIQARoECAMQFSIcCJJOGBogGrIGEgoQCJFOGBkgGcIGBhCBgICCBEDIGg==","split":"Cg9BZGQgdmFyaWFibGUgMjIQARoECAQQFSIcCJJOGBogGrIGEgoQCJFOGBkgGcIGBhCBgICCBEDLGg==","modify":"Cg9BZGQgdmFyaWFibGUgMjIQARoECAMQKyIcCJJOGBogGrIGEgoQCJFOGBkgGcIGBhCBgICCBCoCCA9Azxo="},"27":{"field":"CgwIGxIIEEKwHwa4HwYaGQgbEgwIGxIIEEKwHwa4HwaqAga4HwbAHwYqD0FkZCB2YXJpYWJsZSAyMqofD0FkZCB2YXJpYWJsZSAyMrAfG7gfFg==","assemble":"Cg9BZGQgdmFyaWFibGUgMjIQARoECAMQFSISCJNOGBsgG8oGCBgGIAYwATgBQNkX","split":"Cg9BZGQgdmFyaWFibGUgMjIQARoECAQQFSISCJNOGBsgG8oGCBgGIAYwATgBQKAY","modify":"Cg9BZGQgdmFyaWFibGUgMjIQARoECAMQKyISCJNOGBsgG8oGCBgGIAYwATgBKgIID0DTGA=="}};
 
 function base64ToBytes(base64Text) {
   const binary = atob(base64Text);
@@ -782,12 +949,42 @@ class GiaBaseDocument {
   }
 }
 
+const VARIABLE_NAME_MAX_LENGTH = 20;
+
+function limitVariableName(value) {
+  return String(value ?? "").slice(0,VARIABLE_NAME_MAX_LENGTH);
+}
+
+function variableCopyName(value) {
+  const suffix = " Copy";
+  const source = String(value || "Variable");
+  return source.slice(
+    0,
+    Math.max(0,VARIABLE_NAME_MAX_LENGTH - suffix.length)
+  ) + suffix;
+}
+
+function configureVariableNameInput(input) {
+  input.maxLength = VARIABLE_NAME_MAX_LENGTH;
+  input.title =
+    `Variable names are limited to ${VARIABLE_NAME_MAX_LENGTH} characters.`;
+  return input;
+}
+
 const FORMAL_VARIABLE_TYPES = [
   {enumValue:0,label:"Integer",typedField:11,valueCode:1,kind:"integer"},
   {enumValue:1,label:"Floating Point Number",typedField:12,valueCode:2,kind:"float"},
   {enumValue:2,label:"String",typedField:13,valueCode:3,kind:"string"},
   {enumValue:3,label:"Dynamic Text Field",typedField:14,valueCode:4,kind:"dynamic-text"}
 ];
+
+function isFormalListGiaKind(kind) {
+  return kind === "gia-single" || kind === "gia-tab";
+}
+
+function isFormalListGia() {
+  return currentDocument && isFormalListGiaKind(currentDocument.kind);
+}
 
 function formalTypeInfo(enumValue) {
   return FORMAL_VARIABLE_TYPES.find(type => type.enumValue === Number(enumValue))
@@ -1400,6 +1597,17 @@ class SingleChoiceDocument extends GiaBaseDocument {
   }
 
   buildFormalContainer() {
+    for (const variable of this.formalVariables) {
+      if (
+        String(variable.name || "").length >
+        VARIABLE_NAME_MAX_LENGTH
+      ) {
+        throw new Error(
+          `Formal Variable "${variable.name}" exceeds the ${VARIABLE_NAME_MAX_LENGTH}-character name limit.`
+        );
+      }
+    }
+
     return concatBytes(
       ...this.formalVariables.map((variable,index) =>
         encodeField(
@@ -1456,6 +1664,526 @@ class SingleChoiceDocument extends GiaBaseDocument {
         updateListItemSettings(this.listItemSettings)
       );
     }
+
+    payload = this.replacePathMessage(
+      payload,
+      this.listPath,
+      this.buildListContainer()
+    );
+
+    return this.wrapPayload(payload);
+  }
+}
+
+
+function readVisibilityMap(message) {
+  const output = {};
+
+  try {
+    const fields = parseFields(message);
+
+    for (const field of fields) {
+      if (field.number !== 501 || field.wireType !== 2) continue;
+
+      try {
+        const entryFields = parseFields(field.value);
+        const idField = findField(entryFields,501,0);
+        const visibleField = optionalField(entryFields,502,0);
+
+        output[String(Number(idField.value))] =
+          Boolean(visibleField && Number(visibleField.value));
+      } catch {}
+    }
+  } catch {}
+
+  return output;
+}
+
+function buildVisibilityMap(values) {
+  const entries = Object.entries(values || {})
+    .filter(([targetId,state]) =>
+      targetId &&
+      (state === true || state === false)
+    )
+    .map(([targetId,state]) => {
+      const fields = [
+        encodeField(501,0,Number(targetId))
+      ];
+
+      if (state) {
+        fields.push(encodeField(502,0,1));
+      }
+
+      return encodeField(
+        501,
+        2,
+        concatBytes(...fields)
+      );
+    });
+
+  if (!entries.length) {
+    return new Uint8Array();
+  }
+
+  return concatBytes(
+    ...entries,
+    encodeField(502,0,1)
+  );
+}
+
+function readTabItem(message,formalVariables) {
+  const item = readSingleChoiceItem(
+    message,
+    formalVariables
+  );
+
+  const fields = parseFields(message);
+  const containerField = findField(fields,503,2);
+  const controlField = findField(fields,504,2);
+
+  item.containerVisibility =
+    readVisibilityMap(containerField.value);
+  item.controlVisibility =
+    readVisibilityMap(controlField.value);
+
+  return item;
+}
+
+function updateTabItem(item,formalVariables,template = null) {
+  let message = updateSingleChoiceItem(
+    item,
+    formalVariables,
+    template
+  );
+
+  let fields = parseFields(message);
+  const containerField = findField(fields,503,2);
+
+  message = replaceField(
+    message,
+    containerField,
+    buildVisibilityMap(item.containerVisibility)
+  );
+
+  fields = parseFields(message);
+  const controlField = findField(fields,504,2);
+
+  return replaceField(
+    message,
+    controlField,
+    buildVisibilityMap(item.controlVisibility)
+  );
+}
+
+function componentRefId(message) {
+  try {
+    const fields = parseFields(message);
+    const identity = findField(fields,1,2);
+    const identityFields = parseFields(identity.value);
+    return Number(findField(identityFields,4,0).value);
+  } catch {
+    return null;
+  }
+}
+
+function directComponentName(message) {
+  try {
+    const nameField = optionalField(
+      parseFields(message),
+      3,
+      2
+    );
+
+    return nameField
+      ? decodeUtf8(nameField.value)
+      : "";
+  } catch {
+    return "";
+  }
+}
+
+function collectPrintableGiaLeaves(message,depth = 0) {
+  if (depth > 10) return [];
+
+  let fields;
+
+  try {
+    fields = parseFields(message);
+  } catch {
+    const text = tryPrintableUtf8(message);
+    return text === null ? [] : [text];
+  }
+
+  const output = [];
+
+  for (const field of fields) {
+    if (field.wireType !== 2) continue;
+
+    const text = tryPrintableUtf8(field.value);
+
+    if (text !== null) {
+      output.push(text);
+    } else {
+      output.push(
+        ...collectPrintableGiaLeaves(
+          field.value,
+          depth + 1
+        )
+      );
+    }
+  }
+
+  return output;
+}
+
+function directComponentChildren(message) {
+  const output = [];
+
+  try {
+    const fields = parseFields(message);
+
+    for (const field of fields) {
+      if (field.number !== 2 || field.wireType !== 2) {
+        continue;
+      }
+
+      try {
+        const childFields = parseFields(field.value);
+        const idField = optionalField(childFields,4,0);
+
+        if (idField) {
+          output.push(Number(idField.value));
+        }
+      } catch {}
+    }
+  } catch {}
+
+  return output;
+}
+
+function detectTabVisibilityTargets(payload,items) {
+  const components = new Map();
+
+  try {
+    for (const field of parseFields(payload)) {
+      if (field.number !== 2 || field.wireType !== 2) {
+        continue;
+      }
+
+      const id = componentRefId(field.value);
+
+      if (id === null) continue;
+
+      const directName = directComponentName(field.value);
+      const leaves = collectPrintableGiaLeaves(field.value);
+      const fallbackName =
+        leaves.find(text =>
+          text &&
+          text !== "Inherent Container"
+        ) || `Control ${id}`;
+
+      components.set(id,{
+        id,
+        directName,
+        name:directName || fallbackName,
+        children:directComponentChildren(field.value),
+        rawMessage:field.value
+      });
+    }
+  } catch {}
+
+  const mappedContainerIds = new Set();
+  const mappedControlIds = new Set();
+
+  for (const item of items) {
+    Object.keys(item.containerVisibility || {})
+      .forEach(id => mappedContainerIds.add(Number(id)));
+
+    Object.keys(item.controlVisibility || {})
+      .forEach(id => mappedControlIds.add(Number(id)));
+  }
+
+  const containerIds = new Set(mappedContainerIds);
+
+  // Control Containers in the supplied files are child-bearing controls
+  // without the normal top-level field-3 name used by regular controls.
+  for (const component of components.values()) {
+    if (
+      !component.directName &&
+      component.children.length &&
+      component.name !== "Inherent Container"
+    ) {
+      containerIds.add(component.id);
+    }
+  }
+
+  const parentById = new Map();
+
+  for (const component of components.values()) {
+    for (const childId of component.children) {
+      if (!parentById.has(childId)) {
+        parentById.set(childId,component.id);
+      }
+    }
+  }
+
+  const controlIds = new Set(mappedControlIds);
+
+  const addDescendantControls = containerId => {
+    const container = components.get(containerId);
+
+    if (!container) return;
+
+    const stack = [...container.children];
+    const visited = new Set();
+
+    while (stack.length) {
+      const id = stack.shift();
+
+      if (visited.has(id)) continue;
+      visited.add(id);
+
+      const component = components.get(id);
+
+      if (!component) continue;
+
+      if (containerIds.has(id)) {
+        stack.push(...component.children);
+        continue;
+      }
+
+      if (component.directName) {
+        controlIds.add(id);
+      }
+
+      stack.push(...component.children);
+    }
+  };
+
+  for (const containerId of containerIds) {
+    addDescendantControls(containerId);
+  }
+
+  const makeTarget = (id,kind) => {
+    const component = components.get(id);
+    const parentId = parentById.get(id);
+    const parent = parentId
+      ? components.get(parentId)
+      : null;
+
+    let name = component?.name || `Unknown ${kind} ${id}`;
+
+    if (
+      kind === "control" &&
+      parent &&
+      parent.name &&
+      parent.name !== "Inherent Container"
+    ) {
+      name = `${parent.name} / ${name}`;
+    }
+
+    return {
+      id,
+      name,
+      rawName:component?.name || "",
+      parentId:parentId || null
+    };
+  };
+
+  const sortTargets = targets =>
+    targets.sort((first,second) =>
+      first.name.localeCompare(
+        second.name,
+        undefined,
+        {numeric:true,sensitivity:"base"}
+      )
+    );
+
+  return {
+    containers:sortTargets(
+      [...containerIds]
+        .filter(id => components.has(id) || mappedContainerIds.has(id))
+        .map(id => makeTarget(id,"container"))
+    ),
+    controls:sortTargets(
+      [...controlIds]
+        .filter(id => components.has(id) || mappedControlIds.has(id))
+        .map(id => makeTarget(id,"control"))
+    )
+  };
+}
+
+function hasTopLevelComponentNamed(payload,name) {
+  try {
+    return parseFields(payload).some(field => {
+      if (field.number !== 2 || field.wireType !== 2) {
+        return false;
+      }
+
+      return directComponentName(field.value) === name;
+    });
+  } catch {
+    return false;
+  }
+}
+
+class TabDocument extends SingleChoiceDocument {
+  constructor(fileName,bytes) {
+    super(fileName,bytes);
+
+    if (!hasTopLevelComponentNamed(this.payload,"Tab")) {
+      throw new Error("No Tab component was found.");
+    }
+
+    this.kind = "gia-tab";
+    this.label = "Floating Page + Tab";
+    this.visibilityTargets =
+      detectTabVisibilityTargets(
+        this.payload,
+        this.items
+      );
+  }
+
+  detectListItems() {
+    const candidates = [];
+
+    this.walkMessages((message,fields,path) => {
+      const itemFields = fields.filter(
+        field =>
+          field.number === 501 &&
+          field.wireType === 2
+      );
+
+      const valid = [];
+
+      for (const field of itemFields) {
+        try {
+          const item = readTabItem(
+            field.value,
+            this.formalVariables
+          );
+
+          if (item.internalName && item.order > 0) {
+            valid.push([field,item]);
+          }
+        } catch {}
+      }
+
+      if (valid.length >= 1) {
+        candidates.push({
+          message,
+          path:[...path],
+          fields,
+          valid
+        });
+      }
+    });
+
+    if (!candidates.length) {
+      throw new Error(
+        "Tab List Item Configuration was not found."
+      );
+    }
+
+    const best = candidates.reduce(
+      (first,second) =>
+        second.valid.length > first.valid.length
+          ? second
+          : first
+    );
+
+    this.listPath = best.path;
+    this.containerMessage = best.message;
+
+    const itemFields = best.fields.filter(
+      field =>
+        field.number === 501 &&
+        field.wireType === 2
+    );
+
+    const firstStart = Math.min(
+      ...itemFields.map(field => field.start)
+    );
+
+    const lastEnd = Math.max(
+      ...itemFields.map(field => field.end)
+    );
+
+    this.prefix =
+      this.containerMessage.slice(0,firstStart);
+    this.suffix =
+      this.containerMessage.slice(lastEnd);
+
+    this.items = itemFields
+      .map(field =>
+        readTabItem(
+          field.value,
+          this.formalVariables
+        )
+      )
+      .sort(
+        (first,second) =>
+          first.order - second.order
+      );
+
+    this.normalize();
+  }
+
+  cloneItem(template) {
+    return {
+      internalName:"New Tab",
+      values:this.formalVariables.map(variable =>
+        defaultFormalValue(variable.typeEnum)
+      ),
+      order:this.items.length + 1,
+      rawMessage:template.rawMessage,
+      containerVisibility:{},
+      controlVisibility:{}
+    };
+  }
+
+  buildListContainer() {
+    this.normalize();
+
+    const itemBytes = [...this.items]
+      .sort(
+        (first,second) =>
+          second.order - first.order
+      )
+      .map(item =>
+        encodeField(
+          501,
+          2,
+          updateTabItem(
+            item,
+            this.formalVariables
+          )
+        )
+      );
+
+    return concatBytes(
+      this.prefix,
+      ...itemBytes,
+      this.suffix
+    );
+  }
+
+  buildFile() {
+    if (!this.items.length) {
+      throw new Error(
+        "At least one Tab item must remain."
+      );
+    }
+
+    this.normalize();
+
+    let payload = this.payload;
+
+    payload = this.replacePathMessage(
+      payload,
+      this.formalPath,
+      this.buildFormalContainer()
+    );
 
     payload = this.replacePathMessage(
       payload,
@@ -1645,16 +2373,1372 @@ class DeckSelectorDocument extends GiaBaseDocument {
   }
 }
 
+
+// Structure-GIA type codes verified from Test.gia.
+const STRUCTURE_GIA_TYPES = new Map([
+  [1,{name:"Entity",kind:"scalar"}],
+  [2,{name:"Guid",kind:"scalar"}],
+  [3,{name:"Int32",kind:"scalar"}],
+  [4,{name:"Bool",kind:"scalar"}],
+  [5,{name:"Float",kind:"scalar"}],
+  [6,{name:"String",kind:"scalar"}],
+
+  [7,{name:"GuidList",kind:"list",elementTypeCode:2}],
+  [8,{name:"Int32List",kind:"list",elementTypeCode:3}],
+  [9,{name:"BoolList",kind:"list",elementTypeCode:4}],
+  [10,{name:"FloatList",kind:"list",elementTypeCode:5}],
+  [11,{name:"StringList",kind:"list",elementTypeCode:6}],
+
+  [12,{name:"Vector3",kind:"scalar"}],
+  [13,{name:"EntityList",kind:"list",elementTypeCode:1}],
+  [15,{name:"Vector3List",kind:"list",elementTypeCode:12}],
+
+  [17,{name:"Army",kind:"scalar"}],
+  [20,{name:"ConfigReference",kind:"scalar"}],
+  [21,{name:"EntityReference",kind:"scalar"}],
+  [22,{name:"ConfigReferenceList",kind:"list",elementTypeCode:20}],
+  [23,{name:"EntityReferenceList",kind:"list",elementTypeCode:21}],
+  [24,{name:"ArmyList",kind:"list",elementTypeCode:17}],
+
+  [25,{name:"Struct",kind:"struct"}],
+  [26,{name:"StructList",kind:"struct-list"}],
+  [27,{name:"Dict",kind:"dict"}]
+]);
+
+const STRUCTURE_GIA_BUILD_TYPE_CODES = [
+  6,11,3,8,5,10,4,9,12,15,1,13,2,7,20,22,21,23,17,24,27
+];
+
+const STRUCTURE_GIA_EDITABLE_LIST_TYPES = new Map([
+  [11,{elementKind:"string",label:"String"}],
+  [8,{elementKind:"integer",label:"Int32"}],
+  [9,{elementKind:"bool",label:"Bool"}],
+  [10,{elementKind:"float",label:"Float"}],
+  [15,{elementKind:"vector3",label:"Vector3"}],
+  [13,{elementKind:"id",label:"Entity"}],
+  [7,{elementKind:"id",label:"Guid"}],
+  [22,{elementKind:"id",label:"ConfigReference"}],
+  [23,{elementKind:"id",label:"EntityReference"}],
+  [24,{elementKind:"id",label:"Army"}]
+]);
+
+function isEditableStructureListType(typeCode) {
+  return STRUCTURE_GIA_EDITABLE_LIST_TYPES.has(Number(typeCode));
+}
+
+function structureListElementInfo(typeCode) {
+  return STRUCTURE_GIA_EDITABLE_LIST_TYPES.get(Number(typeCode)) || null;
+}
+
+function structureGiaTypeName(typeCode) {
+  return STRUCTURE_GIA_TYPES.get(Number(typeCode))?.name
+    || `Unknown (${typeCode})`;
+}
+
+function structureGiaBuildTypeOptions() {
+  return STRUCTURE_GIA_BUILD_TYPE_CODES.map(typeCode => ({
+    typeCode,
+    name:structureGiaTypeName(typeCode)
+  }));
+}
+
+function tryPrintableUtf8(bytes) {
+  try {
+    const value = decodeUtf8(bytes);
+
+    if (!value.length) return "";
+
+    for (const character of value) {
+      const code = character.codePointAt(0);
+
+      if (
+        code < 32 &&
+        character !== "\n" &&
+        character !== "\r" &&
+        character !== "\t"
+      ) {
+        return null;
+      }
+    }
+
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+function bytesDiffer(first,second) {
+  if (first.length !== second.length) return true;
+
+  for (let index = 0; index < first.length; index += 1) {
+    if (first[index] !== second[index]) return true;
+  }
+
+  return false;
+}
+
+function transformGiaTextLeaves(message,replacements,depth = 0) {
+  if (depth > 20) return message;
+
+  let fields;
+
+  try {
+    fields = parseFields(message);
+  } catch {
+    return message;
+  }
+
+  let output = message;
+
+  for (let index = fields.length - 1; index >= 0; index -= 1) {
+    const field = fields[index];
+
+    if (field.wireType !== 2) continue;
+
+    let replacementValue = field.value;
+    let parsedAsMessage = false;
+
+    try {
+      const childFields = parseFields(field.value);
+
+      if (childFields.length || field.value.length === 0) {
+        parsedAsMessage = true;
+        replacementValue = transformGiaTextLeaves(
+          field.value,
+          replacements,
+          depth + 1
+        );
+      }
+    } catch {}
+
+    if (!parsedAsMessage) {
+      const text = tryPrintableUtf8(field.value);
+
+      if (text !== null) {
+        let updatedText = text;
+
+        for (const replacement of replacements) {
+          if (!replacement.from) continue;
+
+          updatedText = updatedText
+            .split(replacement.from)
+            .join(replacement.to);
+        }
+
+        if (updatedText !== text) {
+          replacementValue = textEncoder.encode(updatedText);
+        }
+      }
+    }
+
+    if (bytesDiffer(replacementValue,field.value)) {
+      output = replaceField(
+        output,
+        field,
+        replacementValue
+      );
+    }
+  }
+
+  return output;
+}
+
+
+function readStructureGiaListValues(fieldMessage,typeCode) {
+  const numericTypeCode = Number(typeCode);
+  const info = structureListElementInfo(numericTypeCode);
+  if (!info) return [];
+
+  try {
+    const memberFields = parseFields(fieldMessage);
+    const defaultWrapper = findField(memberFields,3,2);
+    const defaultFields = parseFields(defaultWrapper.value);
+    const typedField = optionalField(
+      defaultFields,
+      numericTypeCode + 10,
+      2
+    );
+
+    if (!typedField || !typedField.value.length) return [];
+
+    const listFields = parseFields(typedField.value);
+    const values = [];
+
+    for (const field of listFields) {
+      if (field.number !== 1) continue;
+
+      if (info.elementKind === "string" && field.wireType === 2) {
+        values.push(decodeUtf8(field.value));
+      } else if (info.elementKind === "integer" && field.wireType === 0) {
+        values.push(Number(field.value));
+      } else if (info.elementKind === "bool" && field.wireType === 0) {
+        values.push(Boolean(Number(field.value)));
+      } else if (info.elementKind === "float" && field.wireType === 5) {
+        values.push(decodeFloat32(field.value));
+      } else if (info.elementKind === "id" && field.wireType === 0) {
+        values.push(String(field.value));
+      } else if (info.elementKind === "vector3" && field.wireType === 2) {
+        const vectorFields = parseFields(field.value);
+        const xField = optionalField(vectorFields,1,5);
+        const yField = optionalField(vectorFields,2,5);
+        const zField = optionalField(vectorFields,3,5);
+
+        values.push({
+          x:xField ? decodeFloat32(xField.value) : 0,
+          y:yField ? decodeFloat32(yField.value) : 0,
+          z:zField ? decodeFloat32(zField.value) : 0
+        });
+      }
+    }
+
+    return values;
+  } catch {
+    return [];
+  }
+}
+
+function buildStructureGiaListValueMessage(typeCode,values) {
+  const numericTypeCode = Number(typeCode);
+  const info = structureListElementInfo(numericTypeCode);
+  if (!info) return new Uint8Array();
+
+  const output = [];
+
+  for (const value of values || []) {
+    if (info.elementKind === "string") {
+      output.push(
+        encodeField(1,2,textEncoder.encode(String(value ?? "")))
+      );
+    } else if (info.elementKind === "integer") {
+      output.push(
+        encodeField(1,0,Math.trunc(Number(value) || 0))
+      );
+    } else if (info.elementKind === "bool") {
+      output.push(
+        encodeField(1,0,value ? 1 : 0)
+      );
+    } else if (info.elementKind === "float") {
+      output.push(
+        encodeField(1,5,encodeFloat32(Number(value) || 0))
+      );
+    } else if (info.elementKind === "id") {
+      const text = String(value ?? "0").trim() || "0";
+      output.push(
+        encodeField(1,0,BigInt(text))
+      );
+    } else if (info.elementKind === "vector3") {
+      const vector = value || {};
+      output.push(
+        encodeField(
+          1,
+          2,
+          concatBytes(
+            encodeField(1,5,encodeFloat32(Number(vector.x) || 0)),
+            encodeField(2,5,encodeFloat32(Number(vector.y) || 0)),
+            encodeField(3,5,encodeFloat32(Number(vector.z) || 0))
+          )
+        )
+      );
+    }
+  }
+
+  return output.length
+    ? concatBytes(...output)
+    : new Uint8Array();
+}
+
+function patchStructureGiaListDefault(fieldMessage,typeCode,values) {
+  const numericTypeCode = Number(typeCode);
+  if (!isEditableStructureListType(numericTypeCode)) {
+    return fieldMessage;
+  }
+
+  const memberFields = parseFields(fieldMessage);
+  const defaultWrapper = findField(memberFields,3,2);
+  const defaultFields = parseFields(defaultWrapper.value);
+  const typedField = findField(
+    defaultFields,
+    numericTypeCode + 10,
+    2
+  );
+
+  const patchedDefault = replaceField(
+    defaultWrapper.value,
+    typedField,
+    buildStructureGiaListValueMessage(
+      numericTypeCode,
+      values
+    )
+  );
+
+  return replaceField(
+    fieldMessage,
+    defaultWrapper,
+    patchedDefault
+  );
+}
+
+function structureListDefaultSummary(typeCode,values) {
+  const numericTypeCode = Number(typeCode);
+  const list = values || [];
+
+  if (!list.length) return "[]";
+
+  if (numericTypeCode === 15) {
+    return `[${list.map(vector =>
+      `${Number(vector.x) || 0},${Number(vector.y) || 0},${Number(vector.z) || 0}`
+    ).join("; ")}]`;
+  }
+
+  return `[${list.map(value =>
+    typeof value === "string"
+      ? JSON.stringify(value)
+      : String(value)
+  ).join(", ")}]`;
+}
+
+function readStructureGiaDefault(fieldMessage,typeCode) {
+  try {
+    const numericTypeCode = Number(typeCode);
+    const typeInfo = STRUCTURE_GIA_TYPES.get(numericTypeCode);
+
+    const memberFields = parseFields(fieldMessage);
+    const defaultWrapper = findField(memberFields,3,2);
+    const defaultFields = parseFields(defaultWrapper.value);
+
+    // Verified pattern: the type-specific default field is typeCode + 10.
+    const typedField = optionalField(
+      defaultFields,
+      numericTypeCode + 10,
+      2
+    );
+
+    if (!typedField) {
+      return "(preserved)";
+    }
+
+    if (typeInfo?.kind === "list") {
+      if (isEditableStructureListType(numericTypeCode)) {
+        return structureListDefaultSummary(
+          numericTypeCode,
+          readStructureGiaListValues(
+            fieldMessage,
+            numericTypeCode
+          )
+        );
+      }
+
+      return "[]";
+    }
+
+    if (numericTypeCode === 6) {
+      const typedFields = parseFields(typedField.value);
+      const valueField = optionalField(typedFields,1,2);
+      return valueField ? decodeUtf8(valueField.value) : "";
+    }
+
+    if (numericTypeCode === 4) {
+      const typedFields = parseFields(typedField.value);
+      const valueField = optionalField(typedFields,1,0);
+      return valueField && Number(valueField.value)
+        ? "True"
+        : "False";
+    }
+
+    if (numericTypeCode === 5) {
+      const typedFields = parseFields(typedField.value);
+      const valueField = optionalField(typedFields,1,5);
+      return valueField
+        ? String(decodeFloat32(valueField.value))
+        : "0.00";
+    }
+
+    if (numericTypeCode === 12) {
+      return "0,0,0";
+    }
+
+    if (
+      numericTypeCode === 1 ||
+      numericTypeCode === 2 ||
+      numericTypeCode === 3 ||
+      numericTypeCode === 17 ||
+      numericTypeCode === 20 ||
+      numericTypeCode === 21
+    ) {
+      return "0";
+    }
+
+    if (numericTypeCode === 25) {
+      return "Referenced Structure";
+    }
+
+    if (numericTypeCode === 26) {
+      const typedFields = parseFields(typedField.value);
+      const structIdField = optionalField(typedFields,501,0);
+
+      return structIdField
+        ? `StructList ID ${structIdField.value}`
+        : "Referenced Structure List";
+    }
+
+    if (numericTypeCode === 27) {
+      const typedFields = parseFields(typedField.value);
+      const keyTypeField = optionalField(typedFields,503,0);
+      const valueTypeField = optionalField(typedFields,504,0);
+
+      if (keyTypeField && valueTypeField) {
+        return `${
+          structureGiaTypeName(Number(keyTypeField.value))
+        } → ${
+          structureGiaTypeName(Number(valueTypeField.value))
+        }`;
+      }
+
+      return "Dictionary";
+    }
+  } catch {}
+
+  return "(preserved)";
+}
+
+function readStructureGiaDefinition(message) {
+  const fields = parseFields(message);
+  const structIdField = findField(fields,1,0);
+  const structureNameField = findField(fields,501,2);
+  const structureKindField = findField(fields,502,0);
+  const internalIdField = findField(fields,503,0);
+
+  const memberFields = fields.filter(
+    field =>
+      field.number === 3 &&
+      field.wireType === 2
+  );
+
+  if (!memberFields.length) {
+    throw new Error("Structure has no fields.");
+  }
+
+  const members = memberFields.map(memberField => {
+    const memberMessage = memberField.value;
+    const memberParts = parseFields(memberMessage);
+
+    const nameField =
+      optionalField(memberParts,501,2) ||
+      optionalField(memberParts,5,2);
+
+    if (!nameField) {
+      throw new Error("Structure field name missing.");
+    }
+
+    const typeField = findField(memberParts,502,0);
+    const indexField = findField(memberParts,503,0);
+
+    const name = decodeUtf8(nameField.value);
+    const typeCode = Number(typeField.value);
+
+    return {
+      index:Number(indexField.value),
+      name,
+      originalName:name,
+      typeCode,
+      typeName:structureGiaTypeName(typeCode),
+      listValues:readStructureGiaListValues(
+        memberMessage,
+        typeCode
+      ),
+      defaultValue:readStructureGiaDefault(
+        memberMessage,
+        typeCode
+      )
+    };
+  });
+
+  members.sort(
+    (first,second) =>
+      first.index - second.index
+  );
+
+  return {
+    structId:Number(structIdField.value),
+    structureName:decodeUtf8(structureNameField.value),
+    structureKind:Number(structureKindField.value),
+    internalId:Number(internalIdField.value),
+    members
+  };
+}
+
+
+function rawEncodedField(message,field) {
+  return message.slice(field.start,field.end);
+}
+
+function replaceOrInsertVarintField(message,fieldNumber,value,omitWhenZero = false) {
+  const fields = parseFields(message);
+  const target = optionalField(fields,fieldNumber,0);
+  const parts = [];
+
+  if (target) {
+    for (const field of fields) {
+      if (field === target) {
+        if (!(omitWhenZero && Number(value) === 0)) {
+          parts.push(encodeField(fieldNumber,0,Number(value)));
+        }
+      } else {
+        parts.push(rawEncodedField(message,field));
+      }
+    }
+    return concatBytes(...parts);
+  }
+
+  for (const field of fields) {
+    parts.push(rawEncodedField(message,field));
+  }
+
+  if (!(omitWhenZero && Number(value) === 0)) {
+    parts.push(encodeField(fieldNumber,0,Number(value)));
+  }
+
+  return concatBytes(...parts);
+}
+
+function setStructurePortIndex(portMessage,portIndex) {
+  const fields = parseFields(portMessage);
+  const indexWrapper = findField(fields,3,2);
+  const wrapperFields = parseFields(indexWrapper.value);
+  const parts = [];
+  let foundIndex = false;
+
+  for (const field of wrapperFields) {
+    if (field.number === 2 && field.wireType === 0) {
+      foundIndex = true;
+      if (portIndex !== 0) {
+        parts.push(encodeField(2,0,portIndex));
+      }
+    } else {
+      parts.push(rawEncodedField(indexWrapper.value,field));
+    }
+  }
+
+  if (!foundIndex && portIndex !== 0) {
+    const insertionIndex = parts.length > 0 ? 1 : 0;
+    parts.splice(insertionIndex,0,encodeField(2,0,portIndex));
+  }
+
+  return replaceField(portMessage,indexWrapper,concatBytes(...parts));
+}
+
+function structureTemplateName(message) {
+  const fields = parseFields(message);
+  const nameField =
+    optionalField(fields,501,2) ||
+    optionalField(fields,5,2) ||
+    optionalField(fields,1,2);
+
+  return nameField ? decodeUtf8(nameField.value) : "";
+}
+
+function patchStructureFieldTemplate(
+  typeCode,
+  fieldName,
+  fieldIndex,
+  listValues = []
+) {
+  const encodedTemplate = STRUCTURE_BUILD_TEMPLATES[String(typeCode)];
+  if (!encodedTemplate) {
+    throw new Error(`No Structure field template exists for type ${typeCode}.`);
+  }
+
+  let message = base64ToBytes(encodedTemplate.field);
+  const originalName = structureTemplateName(message);
+
+  message = transformGiaTextLeaves(
+    message,
+    [{from:originalName,to:fieldName}]
+  );
+
+  message = replaceOrInsertVarintField(
+    message,
+    503,
+    fieldIndex,
+    false
+  );
+
+  return patchStructureGiaListDefault(
+    message,
+    typeCode,
+    listValues
+  );
+}
+
+function patchStructurePortTemplate(templateKind,typeCode,fieldName,portIndex,portId) {
+  const encodedTemplate = STRUCTURE_BUILD_TEMPLATES[String(typeCode)];
+  if (!encodedTemplate) {
+    throw new Error(`No Structure port template exists for type ${typeCode}.`);
+  }
+
+  let message = base64ToBytes(encodedTemplate[templateKind]);
+  const originalName = structureTemplateName(message);
+
+  message = transformGiaTextLeaves(
+    message,
+    [{from:originalName,to:fieldName}]
+  );
+  message = setStructurePortIndex(message,portIndex);
+  message = replaceOrInsertVarintField(message,8,portId,false);
+  return message;
+}
+
+function patchStructureModifyToggle(fieldName,portIndex,portId) {
+  let message = base64ToBytes(STRUCTURE_BUILD_TOGGLE_TEMPLATE);
+  const originalName = structureTemplateName(message);
+
+  message = transformGiaTextLeaves(
+    message,
+    [{from:originalName,to:`是否设置_${fieldName}`}]
+  );
+  message = setStructurePortIndex(message,portIndex);
+  message = replaceOrInsertVarintField(message,8,portId,false);
+  return message;
+}
+
+function looksLikeStructureDefinition(message,structureId,structureName) {
+  try {
+    const fields = parseFields(message);
+    const idField = findField(fields,1,0);
+    const nameField = findField(fields,501,2);
+    const kindField = findField(fields,502,0);
+    const internalField = findField(fields,503,0);
+
+    if (
+      Number(idField.value) !== Number(structureId) ||
+      decodeUtf8(nameField.value) !== structureName ||
+      Number(kindField.value) !== 1 ||
+      Number(internalField.value) !== 4
+    ) {
+      return false;
+    }
+
+    return fields.some(
+      field => field.number === 3 && field.wireType === 2
+    );
+  } catch {
+    return false;
+  }
+}
+
+function rebuildStructureDefinitionMessage(message,documentModel) {
+  const fields = parseFields(message);
+  const memberMessages = documentModel.items.map(
+    (item,index) =>
+      patchStructureFieldTemplate(
+        item.typeCode,
+        item.name,
+        index + 1,
+        item.listValues || []
+      )
+  );
+
+  const parts = [];
+  let insertedMembers = false;
+
+  for (const field of fields) {
+    if (field.number === 3 && field.wireType === 2) {
+      if (!insertedMembers) {
+        for (const memberMessage of memberMessages) {
+          parts.push(encodeField(3,2,memberMessage));
+        }
+        insertedMembers = true;
+      }
+      continue;
+    }
+
+    if (field.number === 501 && field.wireType === 2) {
+      parts.push(
+        encodeField(501,2,textEncoder.encode(documentModel.structureName))
+      );
+    } else {
+      parts.push(rawEncodedField(message,field));
+    }
+  }
+
+  return concatBytes(...parts);
+}
+
+function rebuildStructureDefinitionsRecursive(message,documentModel,depth = 0) {
+  if (depth > 20) return message;
+
+  let fields;
+  try {
+    fields = parseFields(message);
+  } catch {
+    return message;
+  }
+
+  if (
+    looksLikeStructureDefinition(
+      message,
+      documentModel.originalStructId,
+      documentModel.originalStructureName
+    )
+  ) {
+    return rebuildStructureDefinitionMessage(message,documentModel);
+  }
+
+  let output = message;
+
+  for (let fieldIndex = fields.length - 1; fieldIndex >= 0; fieldIndex -= 1) {
+    const field = fields[fieldIndex];
+
+    if (
+      field.wireType !== 2 ||
+      tryPrintableUtf8(field.value) !== null
+    ) {
+      continue;
+    }
+
+    let replacementValue;
+    try {
+      replacementValue = rebuildStructureDefinitionsRecursive(
+        field.value,
+        documentModel,
+        depth + 1
+      );
+    } catch {
+      continue;
+    }
+
+    if (bytesDiffer(replacementValue,field.value)) {
+      output = replaceField(output,field,replacementValue);
+    }
+  }
+
+  return output;
+}
+
+function structureNodeKind(message) {
+  try {
+    const fields = parseFields(message);
+    const label = optionalField(fields,200,2);
+    if (!label) return null;
+
+    const text = decodeUtf8(label.value);
+    return [
+      "Assemble Structure",
+      "Split Structure",
+      "Modify Structure"
+    ].includes(text) ? text : null;
+  } catch {
+    return null;
+  }
+}
+
+function structureRecordName(message) {
+  try {
+    const nameField = optionalField(parseFields(message),1,2);
+    return nameField ? decodeUtf8(nameField.value) : "";
+  } catch {
+    return "";
+  }
+}
+
+function structureRecordId(message) {
+  try {
+    const idField = optionalField(parseFields(message),8,0);
+    return idField ? Number(idField.value) : null;
+  } catch {
+    return null;
+  }
+}
+
+function rebuildStructureNodeCore(coreMessage,nodeKind,documentModel) {
+  const fields = parseFields(coreMessage);
+
+  if (nodeKind === "Assemble Structure") {
+    const existingPorts = fields.filter(
+      field => field.number === 102 && field.wireType === 2
+    );
+    const basePortId = existingPorts.length
+      ? structureRecordId(existingPorts[0].value)
+      : 5000;
+
+    const parts = [];
+    let inserted = false;
+
+    for (const field of fields) {
+      if (field.number === 102 && field.wireType === 2) {
+        if (!inserted) {
+          documentModel.items.forEach((item,index) => {
+            parts.push(
+              encodeField(
+                102,
+                2,
+                patchStructurePortTemplate(
+                  "assemble",
+                  item.typeCode,
+                  item.name,
+                  index,
+                  basePortId + index
+                )
+              )
+            );
+          });
+          inserted = true;
+        }
+        continue;
+      }
+
+      parts.push(rawEncodedField(coreMessage,field));
+    }
+
+    return concatBytes(...parts);
+  }
+
+  if (nodeKind === "Split Structure") {
+    const existingPorts = fields.filter(
+      field => field.number === 103 && field.wireType === 2
+    );
+    const basePortId = existingPorts.length
+      ? structureRecordId(existingPorts[0].value)
+      : 5100;
+
+    const parts = [];
+    let inserted = false;
+
+    for (const field of fields) {
+      if (field.number === 103 && field.wireType === 2) {
+        if (!inserted) {
+          documentModel.items.forEach((item,index) => {
+            parts.push(
+              encodeField(
+                103,
+                2,
+                patchStructurePortTemplate(
+                  "split",
+                  item.typeCode,
+                  item.name,
+                  index,
+                  basePortId + index
+                )
+              )
+            );
+          });
+          inserted = true;
+        }
+        continue;
+      }
+
+      parts.push(rawEncodedField(coreMessage,field));
+    }
+
+    return concatBytes(...parts);
+  }
+
+  if (nodeKind === "Modify Structure") {
+    const fieldSpecificPorts = fields.filter(field => {
+      if (field.number !== 102 || field.wireType !== 2) {
+        return false;
+      }
+
+      const name = structureRecordName(field.value);
+      return (
+        name !== documentModel.originalStructureName &&
+        name !== "Modify Object"
+      );
+    });
+
+    const existingFirstValue = fieldSpecificPorts.find(
+      field => !structureRecordName(field.value).startsWith("是否设置_")
+    );
+    const existingFirstToggle = fieldSpecificPorts.find(
+      field => structureRecordName(field.value).startsWith("是否设置_")
+    );
+
+    const baseValueId = existingFirstValue
+      ? structureRecordId(existingFirstValue.value)
+      : 5200;
+    const baseToggleId = existingFirstToggle
+      ? structureRecordId(existingFirstToggle.value)
+      : baseValueId + 1;
+
+    const parts = [];
+    let inserted = false;
+
+    for (const field of fields) {
+      if (field.number === 102 && field.wireType === 2) {
+        const name = structureRecordName(field.value);
+
+        if (
+          name === documentModel.originalStructureName ||
+          name === "Modify Object"
+        ) {
+          parts.push(rawEncodedField(coreMessage,field));
+          continue;
+        }
+
+        if (!inserted) {
+          documentModel.items.forEach((item,index) => {
+            parts.push(
+              encodeField(
+                102,
+                2,
+                patchStructurePortTemplate(
+                  "modify",
+                  item.typeCode,
+                  item.name,
+                  (index * 2) + 1,
+                  baseValueId + (index * 2)
+                )
+              )
+            );
+
+            parts.push(
+              encodeField(
+                102,
+                2,
+                patchStructureModifyToggle(
+                  item.name,
+                  (index * 2) + 2,
+                  baseToggleId + (index * 2)
+                )
+              )
+            );
+          });
+          inserted = true;
+        }
+
+        continue;
+      }
+
+      parts.push(rawEncodedField(coreMessage,field));
+    }
+
+    return concatBytes(...parts);
+  }
+
+  return coreMessage;
+}
+
+function rebuildStructureNodeRecursive(message,documentModel,depth = 0) {
+  if (depth > 20) return message;
+
+  let fields;
+  try {
+    fields = parseFields(message);
+  } catch {
+    return message;
+  }
+
+  const nodeKind = structureNodeKind(message);
+  if (nodeKind) {
+    return rebuildStructureNodeCore(message,nodeKind,documentModel);
+  }
+
+  let output = message;
+
+  for (let fieldIndex = fields.length - 1; fieldIndex >= 0; fieldIndex -= 1) {
+    const field = fields[fieldIndex];
+
+    if (
+      field.wireType !== 2 ||
+      tryPrintableUtf8(field.value) !== null
+    ) {
+      continue;
+    }
+
+    let replacementValue;
+    try {
+      replacementValue = rebuildStructureNodeRecursive(
+        field.value,
+        documentModel,
+        depth + 1
+      );
+    } catch {
+      continue;
+    }
+
+    if (bytesDiffer(replacementValue,field.value)) {
+      output = replaceField(output,field,replacementValue);
+    }
+  }
+
+  return output;
+}
+
+
+function replaceVarintValueRecursive(
+  message,
+  fromValue,
+  toValue,
+  depth = 0
+) {
+  if (depth > 24) return message;
+
+  let fields;
+  try {
+    fields = parseFields(message);
+  } catch {
+    return message;
+  }
+
+  let output = message;
+
+  for (let index = fields.length - 1; index >= 0; index -= 1) {
+    const field = fields[index];
+
+    if (field.wireType === 0) {
+      if (String(field.value) === String(fromValue)) {
+        output = replaceField(
+          output,
+          field,
+          BigInt(String(toValue))
+        );
+      }
+      continue;
+    }
+
+    if (
+      field.wireType !== 2 ||
+      tryPrintableUtf8(field.value) !== null
+    ) {
+      continue;
+    }
+
+    const child = replaceVarintValueRecursive(
+      field.value,
+      fromValue,
+      toValue,
+      depth + 1
+    );
+
+    if (bytesDiffer(child,field.value)) {
+      output = replaceField(output,field,child);
+    }
+  }
+
+  return output;
+}
+
+function generateStructureIdCandidate() {
+  // All supplied Structure IDs use the 0x404xxxxx namespace.
+  // Generate a sparse low-20-bit candidate to minimize collision risk.
+  let randomValue;
+
+  if (globalThis.crypto?.getRandomValues) {
+    const values = new Uint32Array(1);
+    globalThis.crypto.getRandomValues(values);
+    randomValue = values[0];
+  } else {
+    randomValue = (
+      Date.now() ^
+      Math.floor(Math.random() * 0xFFFFFFFF)
+    ) >>> 0;
+  }
+
+  const suffix =
+    1 + (randomValue % 0x000FFFFF);
+
+  return 0x40400000 + suffix;
+}
+
+function structureIdHex(value) {
+  const numeric = Number(value);
+
+  if (!Number.isSafeInteger(numeric) || numeric < 0) {
+    return "";
+  }
+
+  return `0x${numeric.toString(16).toUpperCase().padStart(8,"0")}`;
+}
+
+function buildStructureGiaFromModel(documentModel) {
+  if (!documentModel.items.length) {
+    throw new Error("A Structure must contain at least one field.");
+  }
+
+  for (const item of documentModel.items) {
+    if (
+      String(item.name || "").length >
+      VARIABLE_NAME_MAX_LENGTH
+    ) {
+      throw new Error(
+        `Structure field "${item.name}" exceeds the ${VARIABLE_NAME_MAX_LENGTH}-character variable-name limit.`
+      );
+    }
+  }
+
+  documentModel.normalize();
+  let payload = documentModel.payload;
+
+  payload = rebuildStructureDefinitionsRecursive(payload,documentModel);
+
+  const topFields = parseFields(payload);
+  const rebuiltTopFields = [];
+
+  for (const topField of topFields) {
+    if (topField.number === 2 && topField.wireType === 2) {
+      rebuiltTopFields.push(
+        encodeField(
+          2,
+          2,
+          rebuildStructureNodeRecursive(topField.value,documentModel)
+        )
+      );
+    } else {
+      rebuiltTopFields.push(rawEncodedField(payload,topField));
+    }
+  }
+
+  payload = concatBytes(...rebuiltTopFields);
+
+  payload = transformGiaTextLeaves(
+    payload,
+    [{
+      from:documentModel.originalStructureName,
+      to:documentModel.structureName
+    }]
+  );
+
+  if (
+    String(documentModel.structId) !==
+    String(documentModel.originalStructId)
+  ) {
+    payload = replaceVarintValueRecursive(
+      payload,
+      documentModel.originalStructId,
+      documentModel.structId
+    );
+  }
+
+  return documentModel.wrapPayload(payload);
+}
+
+function structureBuildDefaultLabel(typeCode) {
+  const encodedTemplate = STRUCTURE_BUILD_TEMPLATES[String(typeCode)];
+  if (!encodedTemplate) return "(default)";
+
+  try {
+    return readStructureGiaDefault(
+      base64ToBytes(encodedTemplate.field),
+      typeCode
+    );
+  } catch {
+    return "(default)";
+  }
+}
+
+class StructureGiaDocument extends GiaBaseDocument {
+  constructor(fileName,bytes) {
+    super(fileName,bytes);
+
+    this.kind = "gia-structure";
+    this.label = "Structure Definition GIA";
+    this.items = [];
+    this.structureBuildMode = false;
+
+    const candidates = [];
+
+    const walk = (message,path,depth) => {
+      if (depth > 16) return;
+
+      let fields;
+
+      try {
+        fields = parseFields(message);
+      } catch {
+        return;
+      }
+
+      try {
+        candidates.push({
+          path:[...path],
+          definition:readStructureGiaDefinition(message)
+        });
+      } catch {}
+
+      fields.forEach((field,index) => {
+        if (field.wireType !== 2) return;
+
+        walk(
+          field.value,
+          [...path,[index,field.number]],
+          depth + 1
+        );
+      });
+    };
+
+    walk(this.payload,[],0);
+
+    if (!candidates.length) {
+      throw new Error(
+        "No Structure definition was detected."
+      );
+    }
+
+    candidates.sort(
+      (first,second) =>
+        second.definition.members.length -
+        first.definition.members.length
+    );
+
+    const primary = candidates[0].definition;
+
+    // Avoid false-positive protobuf messages that only happen to use
+    // similar field numbers.
+    if (
+      !primary.structureName ||
+      primary.members.some(
+        member =>
+          !member.name ||
+          member.index <= 0
+      )
+    ) {
+      throw new Error(
+        "Structure definition did not pass validation."
+      );
+    }
+
+    this.structId = primary.structId;
+    this.originalStructId = primary.structId;
+    this.structureName = primary.structureName;
+    this.originalStructureName = primary.structureName;
+    this.structureKind = primary.structureKind;
+    this.internalId = primary.internalId;
+
+    this.items = primary.members.map(member => ({
+      ...member
+    }));
+
+    this.normalize();
+  }
+
+  normalize() {
+    if (this.structureBuildMode) {
+      this.items.forEach((item,index) => {
+        item.index = index + 1;
+        item.typeName = structureGiaTypeName(item.typeCode);
+
+        if (!Array.isArray(item.listValues)) {
+          item.listValues = [];
+        }
+
+        item.defaultValue =
+          isEditableStructureListType(item.typeCode)
+            ? structureListDefaultSummary(
+                item.typeCode,
+                item.listValues
+              )
+            : structureBuildDefaultLabel(item.typeCode);
+      });
+      return;
+    }
+
+    this.items.sort(
+      (first,second) =>
+        first.index - second.index
+    );
+  }
+
+  cloneItem(template = null) {
+    if (!this.structureBuildMode) {
+      throw new Error(
+        "Adding fields to an imported Structure GIA is not enabled."
+      );
+    }
+
+    const source = template || this.items[this.items.length - 1];
+    const typeCode = source?.typeCode ?? 6;
+
+    return {
+      index:this.items.length + 1,
+      name:limitVariableName(
+        `Field ${this.items.length + 1}`
+      ),
+      originalName:limitVariableName(
+        `Field ${this.items.length + 1}`
+      ),
+      typeCode,
+      typeName:structureGiaTypeName(typeCode),
+      listValues:[],
+      defaultValue:structureBuildDefaultLabel(typeCode)
+    };
+  }
+
+  buildFile() {
+    if (this.structureBuildMode) {
+      return buildStructureGiaFromModel(this);
+    }
+
+    const replacements = [];
+
+    if (
+      this.structureName !==
+      this.originalStructureName
+    ) {
+      replacements.push({
+        from:this.originalStructureName,
+        to:this.structureName
+      });
+    }
+
+    for (const item of this.items) {
+      if (item.name !== item.originalName) {
+        replacements.push({
+          from:item.originalName,
+          to:item.name
+        });
+      }
+    }
+
+    if (!replacements.length) {
+      return this.originalFile.slice();
+    }
+
+    replacements.sort(
+      (first,second) =>
+        second.from.length -
+        first.from.length
+    );
+
+    const payload = transformGiaTextLeaves(
+      this.payload,
+      replacements
+    );
+
+    return this.wrapPayload(payload);
+  }
+}
+
 function detectGia(fileName,bytes) {
   const documents = [];
+
   try { documents.push(new DeckSelectorDocument(fileName,bytes)); } catch {}
   try { documents.push(new SingleChoiceDocument(fileName,bytes)); } catch {}
+  try { documents.push(new TabDocument(fileName,bytes)); } catch {}
+  try { documents.push(new StructureGiaDocument(fileName,bytes)); } catch {}
 
   if (!documents.length) {
     throw new Error("No supported GIA data structure was detected.");
   }
 
-  documents.sort((a,b) => b.items.length - a.items.length);
+  const priority = {
+    "gia-tab":4,
+    "gia-deck":3,
+    "gia-single":3,
+    "gia-structure":2
+  };
+
+  documents.sort((first,second) => {
+    const priorityDifference =
+      (priority[second.kind] || 0) -
+      (priority[first.kind] || 0);
+
+    if (priorityDifference) {
+      return priorityDifference;
+    }
+
+    return second.items.length - first.items.length;
+  });
+
   return documents[0];
 }
 
@@ -2053,7 +4137,17 @@ function validateJsonDocument(documentModel) {
       return;
     }
 
-    if (!member.key) warnings.push(`${path}: variable name is empty.`);
+    if (!member.key) {
+      warnings.push(`${path}: variable name is empty.`);
+    } else if (
+      String(member.key).length >
+      VARIABLE_NAME_MAX_LENGTH
+    ) {
+      errors.push(
+        `${path}: variable name exceeds ${VARIABLE_NAME_MAX_LENGTH} characters.`
+      );
+    }
+
     if (!member.param_type) {
       errors.push(`${path}: param_type is missing.`);
       return;
@@ -2264,6 +4358,7 @@ let confirmCallback = null;
 let builderCallback = null;
 let editorClipboard = null;
 let batchDeleteMode = false;
+let giaFilterText = "";
 
 const undoStack = [];
 const redoStack = [];
@@ -2279,13 +4374,25 @@ function captureHistoryState() {
       kind:currentDocument.kind,
       items:deepCloneData(currentDocument.items),
       formalVariables:
-        currentDocument.kind === "gia-single"
+        isFormalListGiaKind(currentDocument.kind)
           ? deepCloneData(currentDocument.formalVariables)
           : null,
       listItemSettings:
         currentDocument.kind === "gia-single"
           ? deepCloneData(currentDocument.listItemSettings)
           : null,
+      structureName:
+        currentDocument.kind === "gia-structure"
+          ? currentDocument.structureName
+          : null,
+      structureId:
+        currentDocument.kind === "gia-structure"
+          ? currentDocument.structId
+          : null,
+      structureBuildMode:
+        currentDocument.kind === "gia-structure"
+          ? Boolean(currentDocument.structureBuildMode)
+          : false,
       selectedIndex
     };
   }
@@ -2315,10 +4422,10 @@ function resetHistory() {
   updateHistoryButtons();
 }
 
-function pushHistory(label) {
+function pushHistory(label,stateOverride = null) {
   if (!currentDocument || restoringHistory) return;
 
-  const state = captureHistoryState();
+  const state = stateOverride || captureHistoryState();
   if (!state) return;
 
   undoStack.push({label,state});
@@ -2329,6 +4436,51 @@ function pushHistory(label) {
 
   redoStack.length = 0;
   updateHistoryButtons();
+}
+
+function giaEditableSignature() {
+  if (!isGia() || selectedIndex === null) return "";
+
+  const item = currentDocument.items[selectedIndex];
+  if (!item) return "";
+
+  if (isFormalListGia()) {
+    return JSON.stringify({
+      item:{
+        internalName:item.internalName,
+        values:item.values,
+        containerVisibility:
+          item.containerVisibility || null,
+        controlVisibility:
+          item.controlVisibility || null
+      },
+      formalVariables:currentDocument.formalVariables,
+      listItemSettings:
+        currentDocument.kind === "gia-single"
+          ? currentDocument.listItemSettings
+          : null
+    });
+  }
+
+  if (currentDocument.kind === "gia-deck") {
+    return JSON.stringify({
+      deckType:item.deckType,
+      iconId:item.iconId,
+      title:item.title,
+      description:item.description,
+      tag:item.tag,
+      internalTagCode:item.internalTagCode
+    });
+  }
+
+  return JSON.stringify({
+    structureName:currentDocument.structureName,
+    structureId:currentDocument.structId,
+    fieldName:item.name,
+    typeCode:item.typeCode,
+    listValues:item.listValues || [],
+    structureBuildMode:Boolean(currentDocument.structureBuildMode)
+  });
 }
 
 function restoreHistoryState(state) {
@@ -2344,14 +4496,30 @@ function restoreHistoryState(state) {
 
       currentDocument.items = deepCloneData(state.items);
 
-      if (currentDocument.kind === "gia-single") {
+      if (isFormalListGiaKind(currentDocument.kind)) {
         currentDocument.formalVariables = deepCloneData(
           state.formalVariables || []
         );
 
-        currentDocument.listItemSettings = deepCloneData(
-          state.listItemSettings
-        );
+        if (currentDocument.kind === "gia-single") {
+          currentDocument.listItemSettings = deepCloneData(
+            state.listItemSettings
+          );
+        }
+      }
+
+      if (currentDocument.kind === "gia-structure") {
+        currentDocument.structureName =
+          state.structureName ||
+          currentDocument.structureName;
+
+        if (state.structureId !== null && state.structureId !== undefined) {
+          currentDocument.structId =
+            Number(state.structureId);
+        }
+
+        currentDocument.structureBuildMode =
+          Boolean(state.structureBuildMode);
       }
 
       currentDocument.normalize();
@@ -2427,6 +4595,13 @@ function redoHistory() {
 }
 
 function setBatchDeleteMode(enabled) {
+  if (
+    currentDocument?.kind === "gia-structure" &&
+    !currentDocument.structureBuildMode
+  ) {
+    enabled = false;
+  }
+
   batchDeleteMode = Boolean(enabled);
 
   elements.batchDeleteButton.textContent =
@@ -2519,21 +4694,33 @@ const elements = {};
 [
   "editorTab","buildTab","undoButton","redoButton","openButton","csvButton","exportButton","fileInput","csvInput",
   "modePill","fileName","editorView","buildView","giaToolbar","jsonToolbar","addButton",
-  "duplicateButton","copyButton","pasteButton","deleteButton","batchDeleteButton","upButton","downButton","itemCount","jsonAddRootButton",
+  "duplicateButton","copyButton","pasteButton","deleteButton","batchDeleteButton","upButton","downButton","giaFilterInput","clearGiaFilterButton","itemCount","jsonAddRootButton",
   "validateJsonButton","jsonSummary","emptyState","dropCard","emptyOpenButton","singleTable","singleBody","deckTable",
-  "deckBody","jsonSurface","noInspector","singleInspector","deckInspector","giaInspectorActions",
+  "deckBody","structureTable","structureBody","jsonSurface","noInspector","singleInspector","deckInspector","structureInspector","giaInspectorActions",
   "jsonRawInspector","singleInternalName","singleFormalValueFields","formalVariableEditor","addFormalVariableButton",
-  "singleItemWidth","singleItemHeight","singleItemSpacing",
+  "listItemInspectorTitle","tabVisibilityEditor","tabContainerVisibilityList","tabControlVisibilityList",
+  "tabContainerVisibilitySummary","tabControlVisibilitySummary",
+  "tabContainersShowAll","tabContainersHideAll","tabContainersClear",
+  "tabControlsShowAll","tabControlsHideAll","tabControlsClear",
+  "singleChoiceSettingsPanel","singleItemWidth","singleItemHeight","singleItemSpacing",
   "deckId","deckType","deckTitle","deckIcon","deckTag","deckTagCode","deckDescription",
+  "structureName","structureId","generateStructureIdButton","structureIdHex",
+  "structureFieldName","structureFieldType","structureFieldTypeCode",
+  "structureScalarDefaultField","structureFieldDefault","structureListDefaultPanel","structureListAddButton","structureListEditor","structureGiaHelp",
   "applyGiaButton","revertGiaButton","rawJson","applyRawButton","refreshRawButton","copyRawButton","pasteRawButton","metaType",
-  "metaSize","metaDetails","statusDot","statusText","newSingleButton","newDeckButton",
+  "metaSize","metaDetails","statusDot","statusText","newSingleButton","newDeckButton","newTabButton","newStructureGiaButton",
   "newDictButton","newStructButton","builderModal","builderTitle","builderDescription",
   "builderFields","builderCancel","builderCreate","confirmModal","confirmTitle","confirmText",
   "confirmCancel","confirmDo"
 ].forEach(id => elements[id] = document.getElementById(id));
 
 function isGia() {
-  return currentDocument && (currentDocument.kind === "gia-single" || currentDocument.kind === "gia-deck");
+  return currentDocument && (
+    currentDocument.kind === "gia-single" ||
+    currentDocument.kind === "gia-tab" ||
+    currentDocument.kind === "gia-deck" ||
+    currentDocument.kind === "gia-structure"
+  );
 }
 
 function isJson() {
@@ -2565,7 +4752,11 @@ function updateMeta() {
 
   if (isGia()) {
     elements.metaSize.textContent = `${currentDocument.originalFile.length.toLocaleString()} bytes`;
-    elements.metaDetails.textContent = `${currentDocument.items.length} editable item(s)`;
+
+    elements.metaDetails.textContent =
+      currentDocument.kind === "gia-structure"
+        ? `${currentDocument.items.length} field(s) · Structure ID ${currentDocument.structId}`
+        : `${currentDocument.items.length} editable item(s)`;
   } else {
     const text = currentDocument.buildText();
     elements.metaSize.textContent = `${new Blob([text]).size.toLocaleString()} bytes`;
@@ -2581,7 +4772,9 @@ function refreshModeUi() {
   const gia = isGia();
   const json = isJson();
 
-  elements.csvButton.disabled = !gia;
+  elements.csvButton.disabled =
+    !gia ||
+    currentDocument?.kind === "gia-structure";
   elements.exportButton.disabled = !loaded;
 
   elements.giaToolbar.classList.toggle("hidden",!gia);
@@ -2590,11 +4783,13 @@ function refreshModeUi() {
   elements.emptyState.classList.toggle("hidden",loaded);
   elements.singleTable.classList.add("hidden");
   elements.deckTable.classList.add("hidden");
+  elements.structureTable.classList.add("hidden");
   elements.jsonSurface.classList.add("hidden");
 
   elements.noInspector.classList.toggle("hidden",loaded);
   elements.singleInspector.classList.add("hidden");
   elements.deckInspector.classList.add("hidden");
+  elements.structureInspector.classList.add("hidden");
   elements.giaInspectorActions.classList.add("hidden");
   elements.jsonRawInspector.classList.toggle("hidden",!json);
 
@@ -2607,14 +4802,31 @@ function refreshModeUi() {
   updateMeta();
 }
 
-function setSelectedIndex(index) {
+function setSelectedIndex(index,focusEditor = false) {
+  if (
+    isGia() &&
+    selectedIndex !== null &&
+    index !== selectedIndex
+  ) {
+    if (!applyGiaFields(true,false)) return;
+  }
+
   selectedIndex = index;
 
-  if (!isGia() || index === null || index < 0 || index >= currentDocument.items.length) {
+  if (
+    !isGia() ||
+    index === null ||
+    index < 0 ||
+    index >= currentDocument.items.length
+  ) {
     selectedIndex = null;
   }
 
   renderGia();
+
+  if (focusEditor && selectedIndex !== null) {
+    focusGiaPrimaryField(false);
+  }
 }
 
 /* ========================= GIA UI ========================= */
@@ -2661,14 +4873,20 @@ function renderFormalVariableEditor() {
   currentDocument.formalVariables.forEach((variable,index) => {
     const row = makeElement("div","formal-variable-row");
 
-    const nameInput = document.createElement("input");
+    const nameInput =
+      configureVariableNameInput(
+        document.createElement("input")
+      );
     nameInput.value = variable.name;
 
     nameInput.addEventListener("change",() => {
       pushHistory("Rename Formal Variable");
       variable.name =
-        nameInput.value.trim() ||
-        `Variable ${index + 1}`;
+        limitVariableName(
+          nameInput.value.trim() ||
+          `Variable ${index + 1}`
+        );
+      nameInput.value = variable.name;
       renderGia();
     });
 
@@ -2737,18 +4955,713 @@ function renderFormalVariableEditor() {
   }
 }
 
+
+function visibilityStateFor(item,kind,targetId) {
+  const map =
+    kind === "container"
+      ? item.containerVisibility
+      : item.controlVisibility;
+
+  const key = String(targetId);
+
+  if (!map || !Object.prototype.hasOwnProperty.call(map,key)) {
+    return "unchanged";
+  }
+
+  return map[key] ? "show" : "hide";
+}
+
+function renderVisibilityTargetList(
+  host,
+  targets,
+  item,
+  kind,
+  summaryElement
+) {
+  host.innerHTML = "";
+
+  const sorted = [...targets].sort((first,second) => {
+    const firstState =
+      visibilityStateFor(item,kind,first.id);
+    const secondState =
+      visibilityStateFor(item,kind,second.id);
+
+    const firstMapped =
+      firstState === "unchanged" ? 1 : 0;
+    const secondMapped =
+      secondState === "unchanged" ? 1 : 0;
+
+    if (firstMapped !== secondMapped) {
+      return firstMapped - secondMapped;
+    }
+
+    return first.name.localeCompare(
+      second.name,
+      undefined,
+      {numeric:true,sensitivity:"base"}
+    );
+  });
+
+  let mappedCount = 0;
+
+  for (const target of sorted) {
+    const state =
+      visibilityStateFor(item,kind,target.id);
+
+    if (state !== "unchanged") {
+      mappedCount += 1;
+    }
+
+    const row = makeElement(
+      "div",
+      "visibility-row"
+    );
+
+    const name = makeElement(
+      "div",
+      "visibility-name"
+    );
+
+    name.appendChild(
+      makeElement("strong","",target.name)
+    );
+
+    name.appendChild(
+      makeElement(
+        "small",
+        "",
+        `ID ${target.id}`
+      )
+    );
+
+    const select = document.createElement("select");
+    select.dataset.tabVisibilityKind = kind;
+    select.dataset.tabVisibilityTarget =
+      String(target.id);
+
+    [
+      ["unchanged","Unchanged"],
+      ["show","Show"],
+      ["hide","Hide"]
+    ].forEach(([value,label]) => {
+      const option =
+        document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      select.appendChild(option);
+    });
+
+    select.value = state;
+
+    row.append(name,select);
+    host.appendChild(row);
+  }
+
+  if (!sorted.length) {
+    host.appendChild(
+      makeElement(
+        "div",
+        "help",
+        kind === "container"
+          ? "No Control Containers were detected on this Floating Page."
+          : "No regular Controls inside detected Control Containers were found."
+      )
+    );
+  }
+
+  summaryElement.textContent =
+    `${mappedCount} mapped · ${sorted.length} available`;
+}
+
+function renderTabVisibilityEditor(item) {
+  const targets =
+    currentDocument.visibilityTargets || {
+      containers:[],
+      controls:[]
+    };
+
+  renderVisibilityTargetList(
+    elements.tabContainerVisibilityList,
+    targets.containers,
+    item,
+    "container",
+    elements.tabContainerVisibilitySummary
+  );
+
+  renderVisibilityTargetList(
+    elements.tabControlVisibilityList,
+    targets.controls,
+    item,
+    "control",
+    elements.tabControlVisibilitySummary
+  );
+}
+
+function readTabVisibilityEditor(item) {
+  const containerVisibility = {};
+  const controlVisibility = {};
+
+  document.querySelectorAll(
+    "[data-tab-visibility-kind][data-tab-visibility-target]"
+  ).forEach(control => {
+    const kind =
+      control.dataset.tabVisibilityKind;
+    const targetId =
+      control.dataset.tabVisibilityTarget;
+    const state = control.value;
+
+    if (state === "unchanged") return;
+
+    const value = state === "show";
+
+    if (kind === "container") {
+      containerVisibility[targetId] = value;
+    } else {
+      controlVisibility[targetId] = value;
+    }
+  });
+
+  item.containerVisibility = containerVisibility;
+  item.controlVisibility = controlVisibility;
+}
+
+function setTabVisibilityBulk(kind,state) {
+  if (
+    currentDocument?.kind !== "gia-tab" ||
+    selectedIndex === null
+  ) {
+    return;
+  }
+
+  if (!applyGiaFields(true,false)) return;
+
+  const item =
+    currentDocument.items[selectedIndex];
+
+  pushHistory(
+    `Set Tab ${kind} visibility`
+  );
+
+  const targets =
+    kind === "container"
+      ? currentDocument.visibilityTargets.containers
+      : currentDocument.visibilityTargets.controls;
+
+  const output = {};
+
+  if (state === true || state === false) {
+    for (const target of targets) {
+      output[String(target.id)] = state;
+    }
+  }
+
+  if (kind === "container") {
+    item.containerVisibility = output;
+  } else {
+    item.controlVisibility = output;
+  }
+
+  renderGia();
+}
+
+function giaItemSearchText(item) {
+  if (isFormalListGia()) {
+    const visibilityText =
+      currentDocument.kind === "gia-tab"
+        ? [
+            ...Object.keys(item.containerVisibility || {}),
+            ...Object.keys(item.controlVisibility || {})
+          ].join(" ")
+        : "";
+
+    return [
+      item.internalName,
+      ...currentDocument.formalVariables.map(variable => variable.name),
+      ...(item.values || []).map(value => String(value ?? "")),
+      visibilityText
+    ].join(" ").toLowerCase();
+  }
+
+  if (currentDocument.kind === "gia-deck") {
+    return [
+      item.id,item.deckType,item.iconId,item.title,item.tag,
+      deckColorLabel(item.internalTagCode),item.description
+    ].join(" ").toLowerCase();
+  }
+
+  return [
+    item.index,item.name,item.typeName,item.typeCode,item.defaultValue
+  ].join(" ").toLowerCase();
+}
+
+function visibleGiaIndices() {
+  if (!isGia()) return [];
+
+  const query = giaFilterText.trim().toLowerCase();
+
+  return currentDocument.items
+    .map((item,index) => ({item,index}))
+    .filter(({item}) =>
+      !query || giaItemSearchText(item).includes(query)
+    )
+    .map(({index}) => index);
+}
+
+function focusGiaPrimaryField(selectText = false) {
+  if (!isGia() || selectedIndex === null) return;
+
+  const target =
+    isFormalListGia()
+      ? elements.singleInternalName
+      : currentDocument.kind === "gia-deck"
+        ? elements.deckTitle
+        : elements.structureFieldName;
+
+  requestAnimationFrame(() => {
+    target.focus();
+    if (selectText && typeof target.select === "function") {
+      target.select();
+    }
+  });
+}
+
+function selectAdjacentVisibleGia(direction) {
+  const visible = visibleGiaIndices();
+  if (!visible.length) return;
+
+  let position = visible.indexOf(selectedIndex);
+
+  if (position < 0) {
+    position = direction > 0 ? -1 : visible.length;
+  }
+
+  const nextPosition = Math.max(
+    0,
+    Math.min(visible.length - 1,position + direction)
+  );
+
+  setSelectedIndex(visible[nextPosition],false);
+}
+
+function setGiaFilter(value) {
+  giaFilterText = String(value || "");
+  elements.giaFilterInput.value = giaFilterText;
+  elements.clearGiaFilterButton.disabled = !giaFilterText;
+
+  if (isGia()) renderGia();
+}
+
+
+function defaultStructureListItem(typeCode) {
+  const info = structureListElementInfo(typeCode);
+  if (!info) return null;
+
+  if (info.elementKind === "string") return "";
+  if (info.elementKind === "integer") return 0;
+  if (info.elementKind === "bool") return false;
+  if (info.elementKind === "float") return 0;
+  if (info.elementKind === "id") return "0";
+  if (info.elementKind === "vector3") {
+    return {x:0,y:0,z:0};
+  }
+
+  return null;
+}
+
+function renderStructureListEditor(item) {
+  elements.structureListEditor.innerHTML = "";
+
+  const editable =
+    currentDocument.structureBuildMode &&
+    isEditableStructureListType(item.typeCode);
+
+  elements.structureListDefaultPanel.classList.toggle(
+    "hidden",
+    !editable
+  );
+
+  elements.structureScalarDefaultField.classList.toggle(
+    "hidden",
+    editable
+  );
+
+  if (!editable) return;
+
+  if (!Array.isArray(item.listValues)) {
+    item.listValues = [];
+  }
+
+  if (!item.listValues.length) {
+    elements.structureListEditor.appendChild(
+      makeElement(
+        "div",
+        "structure-list-empty",
+        "Empty list. Click + Add Item."
+      )
+    );
+    return;
+  }
+
+  const info = structureListElementInfo(item.typeCode);
+
+  item.listValues.forEach((value,index) => {
+    const row = makeElement(
+      "div",
+      "structure-list-row"
+    );
+
+    const valueHost = makeElement(
+      "div",
+      "structure-list-value"
+    );
+
+    if (info.elementKind === "vector3") {
+      const grid = makeElement(
+        "div",
+        "structure-vector-grid"
+      );
+
+      ["x","y","z"].forEach(axis => {
+        const input = document.createElement("input");
+        input.type = "number";
+        input.step = "any";
+        input.value = String(
+          Number(value?.[axis]) || 0
+        );
+        input.dataset.structureListIndex =
+          String(index);
+        input.dataset.structureListAxis = axis;
+        input.title = axis.toUpperCase();
+        grid.appendChild(input);
+      });
+
+      valueHost.appendChild(grid);
+    } else if (info.elementKind === "bool") {
+      const select = document.createElement("select");
+      select.dataset.structureListIndex =
+        String(index);
+
+      [["true","True"],["false","False"]]
+        .forEach(([optionValue,label]) => {
+          const option =
+            document.createElement("option");
+          option.value = optionValue;
+          option.textContent = label;
+          select.appendChild(option);
+        });
+
+      select.value = value ? "true" : "false";
+      valueHost.appendChild(select);
+    } else {
+      const input = document.createElement("input");
+      input.dataset.structureListIndex =
+        String(index);
+
+      if (info.elementKind === "integer") {
+        input.type = "number";
+        input.step = "1";
+        input.value = String(
+          Math.trunc(Number(value) || 0)
+        );
+      } else if (info.elementKind === "float") {
+        input.type = "number";
+        input.step = "any";
+        input.value = String(
+          Number(value) || 0
+        );
+      } else if (info.elementKind === "id") {
+        input.type = "text";
+        input.inputMode = "numeric";
+        input.value = String(value ?? "0");
+      } else {
+        input.type = "text";
+        input.value = String(value ?? "");
+      }
+
+      valueHost.appendChild(input);
+    }
+
+    const actions = makeElement(
+      "div",
+      "structure-list-actions"
+    );
+
+    const upButton = makeElement(
+      "button",
+      "small",
+      "↑"
+    );
+    const downButton = makeElement(
+      "button",
+      "small",
+      "↓"
+    );
+    const duplicateButton = makeElement(
+      "button",
+      "small",
+      "⧉"
+    );
+    const deleteButton = makeElement(
+      "button",
+      "small danger",
+      "×"
+    );
+
+    upButton.disabled = index === 0;
+    downButton.disabled =
+      index === item.listValues.length - 1;
+
+    upButton.title = "Move item up";
+    downButton.title = "Move item down";
+    duplicateButton.title = "Duplicate item";
+    deleteButton.title = "Delete item";
+
+    upButton.addEventListener("click",() => {
+      if (!applyGiaFields(true,false)) return;
+      pushHistory("Move Structure list item");
+
+      [
+        item.listValues[index - 1],
+        item.listValues[index]
+      ] = [
+        item.listValues[index],
+        item.listValues[index - 1]
+      ];
+
+      renderGia();
+    });
+
+    downButton.addEventListener("click",() => {
+      if (!applyGiaFields(true,false)) return;
+      pushHistory("Move Structure list item");
+
+      [
+        item.listValues[index],
+        item.listValues[index + 1]
+      ] = [
+        item.listValues[index + 1],
+        item.listValues[index]
+      ];
+
+      renderGia();
+    });
+
+    duplicateButton.addEventListener("click",() => {
+      if (!applyGiaFields(true,false)) return;
+      pushHistory("Duplicate Structure list item");
+
+      item.listValues.splice(
+        index + 1,
+        0,
+        deepCloneData(item.listValues[index])
+      );
+
+      renderGia();
+    });
+
+    deleteButton.addEventListener("click",() => {
+      if (!applyGiaFields(true,false)) return;
+      pushHistory("Delete Structure list item");
+      item.listValues.splice(index,1);
+      renderGia();
+    });
+
+    actions.append(
+      upButton,
+      downButton,
+      duplicateButton,
+      deleteButton
+    );
+
+    row.append(
+      valueHost,
+      actions
+    );
+
+    elements.structureListEditor.appendChild(row);
+  });
+}
+
+function readStructureListEditor(item) {
+  const info = structureListElementInfo(item.typeCode);
+
+  if (
+    !currentDocument.structureBuildMode ||
+    !info
+  ) {
+    return true;
+  }
+
+  const output = deepCloneData(
+    item.listValues || []
+  );
+
+  const controls =
+    elements.structureListEditor.querySelectorAll(
+      "[data-structure-list-index]"
+    );
+
+  for (const control of controls) {
+    const index = Number(
+      control.dataset.structureListIndex
+    );
+
+    if (info.elementKind === "vector3") {
+      if (
+        !output[index] ||
+        typeof output[index] !== "object"
+      ) {
+        output[index] = {x:0,y:0,z:0};
+      }
+
+      const axis =
+        control.dataset.structureListAxis;
+      const value = Number(control.value);
+
+      if (!Number.isFinite(value)) {
+        alert(
+          `Vector3 list item ${index + 1} ${axis.toUpperCase()} must be a number.`
+        );
+        return false;
+      }
+
+      output[index][axis] = value;
+    } else if (info.elementKind === "string") {
+      output[index] = control.value;
+    } else if (info.elementKind === "integer") {
+      const value = Number(control.value);
+
+      if (!Number.isFinite(value)) {
+        alert(
+          `Int32 list item ${index + 1} must be a number.`
+        );
+        return false;
+      }
+
+      output[index] = Math.trunc(value);
+    } else if (info.elementKind === "bool") {
+      output[index] =
+        control.value === "true";
+    } else if (info.elementKind === "float") {
+      const value = Number(control.value);
+
+      if (!Number.isFinite(value)) {
+        alert(
+          `Float list item ${index + 1} must be a number.`
+        );
+        return false;
+      }
+
+      output[index] = value;
+    } else if (info.elementKind === "id") {
+      const text =
+        control.value.trim() || "0";
+
+      try {
+        const numeric = BigInt(text);
+        if (numeric < 0n) throw new Error();
+      } catch {
+        alert(
+          `${info.label} list item ${index + 1} must be a non-negative integer ID.`
+        );
+        return false;
+      }
+
+      output[index] = text;
+    }
+  }
+
+  item.listValues = output;
+  item.defaultValue =
+    structureListDefaultSummary(
+      item.typeCode,
+      output
+    );
+
+  return true;
+}
+
+function addStructureListItem() {
+  if (
+    currentDocument?.kind !== "gia-structure" ||
+    !currentDocument.structureBuildMode ||
+    selectedIndex === null
+  ) {
+    return;
+  }
+
+  if (!applyGiaFields(true,false)) return;
+
+  const item =
+    currentDocument.items[selectedIndex];
+
+  if (!isEditableStructureListType(item.typeCode)) {
+    return;
+  }
+
+  pushHistory("Add Structure list item");
+
+  if (!Array.isArray(item.listValues)) {
+    item.listValues = [];
+  }
+
+  item.listValues.push(
+    defaultStructureListItem(item.typeCode)
+  );
+
+  renderGia();
+
+  requestAnimationFrame(() => {
+    const index = item.listValues.length - 1;
+    const control = elements.structureListEditor.querySelector(
+      `[data-structure-list-index="${index}"]`
+    );
+
+    control?.focus();
+
+    if (typeof control?.select === "function") {
+      control.select();
+    }
+  });
+}
+
+function applyGeneratedStructureId() {
+  if (
+    currentDocument?.kind !== "gia-structure" ||
+    !currentDocument.structureBuildMode
+  ) {
+    return;
+  }
+
+  const before = captureHistoryState();
+  const newId = generateStructureIdCandidate();
+
+  currentDocument.structId = newId;
+  elements.structureId.value = String(newId);
+  elements.structureIdHex.textContent =
+    `${structureIdHex(newId)} · generated candidate`;
+
+  pushHistory("Generate Structure ID",before);
+  updateMeta();
+}
+
 function renderGia() {
   if (!isGia()) return;
 
   currentDocument.normalize();
 
+  const visibleIndices = new Set(visibleGiaIndices());
+
   elements.singleBody.innerHTML = "";
   elements.deckBody.innerHTML = "";
+  elements.structureBody.innerHTML = "";
 
-  if (currentDocument.kind === "gia-single") {
+  if (isFormalListGia()) {
     elements.singleTable.classList.remove("hidden");
 
     currentDocument.items.forEach((item,index) => {
+      if (!visibleIndices.has(index)) return;
+
       const row = document.createElement("tr");
 
       if (index === selectedIndex) {
@@ -2788,24 +5701,37 @@ function renderGia() {
         setSelectedIndex(index);
       });
 
+      row.addEventListener("dblclick",() => {
+        if (!batchDeleteMode) setSelectedIndex(index,true);
+      });
+
       elements.singleBody.appendChild(row);
     });
-  } else {
+  } else if (currentDocument.kind === "gia-deck") {
     elements.deckTable.classList.remove("hidden");
 
     currentDocument.items.forEach((item,index) => {
+      if (!visibleIndices.has(index)) return;
+
       const row = document.createElement("tr");
-      if (index === selectedIndex) row.classList.add("selected");
+
+      if (index === selectedIndex) {
+        row.classList.add("selected");
+      }
+
       row.innerHTML = `
         <td class="col-num">${item.id}</td>
         <td class="col-bool">${item.deckType ? "True" : "False"}</td>
         <td class="col-icon">${item.iconId}</td>
         <td></td><td></td><td></td><td></td>
       `;
+
       row.children[3].textContent = item.title;
       row.children[4].textContent = item.tag;
-      row.children[5].textContent = deckColorLabel(item.internalTagCode);
+      row.children[5].textContent =
+        deckColorLabel(item.internalTagCode);
       row.children[6].textContent = item.description;
+
       row.addEventListener("click",() => {
         if (batchDeleteMode) {
           deleteGiaIndex(index,true);
@@ -2814,42 +5740,137 @@ function renderGia() {
 
         setSelectedIndex(index);
       });
+
+      row.addEventListener("dblclick",() => {
+        if (!batchDeleteMode) setSelectedIndex(index,true);
+      });
+
       elements.deckBody.appendChild(row);
+    });
+  } else {
+    elements.structureTable.classList.remove("hidden");
+
+    currentDocument.items.forEach((item,index) => {
+      if (!visibleIndices.has(index)) return;
+
+      const row = document.createElement("tr");
+
+      if (index === selectedIndex) {
+        row.classList.add("selected");
+      }
+
+      row.innerHTML = `
+        <td class="col-num">${item.index}</td>
+        <td></td>
+        <td></td>
+        <td></td>
+      `;
+
+      row.children[1].textContent = item.name;
+      row.children[2].textContent = item.typeName;
+      row.children[3].textContent = item.defaultValue;
+
+      row.addEventListener("click",() => {
+        setSelectedIndex(index);
+      });
+
+      row.addEventListener("dblclick",() => {
+        setSelectedIndex(index,true);
+      });
+
+      elements.structureBody.appendChild(row);
     });
   }
 
-  elements.itemCount.textContent = `${currentDocument.items.length} item${currentDocument.items.length === 1 ? "" : "s"}`;
-
   const hasSelection = selectedIndex !== null;
-  elements.duplicateButton.disabled = !hasSelection;
-  elements.copyButton.disabled = !hasSelection;
-  elements.pasteButton.disabled = !isGia();
-  elements.deleteButton.disabled = !hasSelection;
-  elements.batchDeleteButton.disabled = !isGia();
-  elements.upButton.disabled = !hasSelection || selectedIndex === 0;
-  elements.downButton.disabled = !hasSelection || selectedIndex === currentDocument.items.length - 1;
-  elements.addButton.disabled = false;
+  const structureGia =
+    currentDocument.kind === "gia-structure";
+  const lockedStructureGia =
+    structureGia &&
+    !currentDocument.structureBuildMode;
 
-  elements.noInspector.classList.toggle("hidden",hasSelection);
-  elements.giaInspectorActions.classList.toggle("hidden",!hasSelection);
+  const visibleCount = visibleIndices.size;
+  const totalCount = currentDocument.items.length;
+  const countPrefix =
+    visibleCount === totalCount
+      ? `${totalCount}`
+      : `${visibleCount} of ${totalCount}`;
+
+  elements.itemCount.textContent =
+    structureGia
+      ? `${countPrefix} field${totalCount === 1 ? "" : "s"}`
+      : `${countPrefix} item${totalCount === 1 ? "" : "s"}`;
+
+  elements.duplicateButton.disabled =
+    !hasSelection || lockedStructureGia;
+  elements.copyButton.disabled =
+    !hasSelection || lockedStructureGia;
+  elements.pasteButton.disabled =
+    !isGia() || lockedStructureGia;
+  elements.deleteButton.disabled =
+    !hasSelection || lockedStructureGia;
+  elements.batchDeleteButton.disabled =
+    !isGia() || lockedStructureGia;
+  elements.upButton.disabled =
+    !hasSelection ||
+    lockedStructureGia ||
+    selectedIndex === 0;
+  elements.downButton.disabled =
+    !hasSelection ||
+    lockedStructureGia ||
+    selectedIndex === currentDocument.items.length - 1;
+  elements.addButton.disabled = lockedStructureGia;
+
+  elements.noInspector.classList.toggle(
+    "hidden",
+    hasSelection
+  );
+  elements.giaInspectorActions.classList.toggle(
+    "hidden",
+    !hasSelection
+  );
 
   if (!hasSelection) {
     elements.singleInspector.classList.add("hidden");
     elements.deckInspector.classList.add("hidden");
+    elements.structureInspector.classList.add("hidden");
     return;
   }
 
   const item = currentDocument.items[selectedIndex];
 
-  if (currentDocument.kind === "gia-single") {
+  if (isFormalListGia()) {
     elements.singleInspector.classList.remove("hidden");
     elements.deckInspector.classList.add("hidden");
+    elements.structureInspector.classList.add("hidden");
+
+    elements.listItemInspectorTitle.textContent =
+      currentDocument.kind === "gia-tab"
+        ? "Tab Item"
+        : "List Item";
 
     elements.singleInternalName.value = item.internalName;
     renderSingleFormalValueFields(item);
     renderFormalVariableEditor();
 
-    if (currentDocument.listItemSettings) {
+    elements.tabVisibilityEditor.classList.toggle(
+      "hidden",
+      currentDocument.kind !== "gia-tab"
+    );
+
+    elements.singleChoiceSettingsPanel.classList.toggle(
+      "hidden",
+      currentDocument.kind !== "gia-single"
+    );
+
+    if (currentDocument.kind === "gia-tab") {
+      renderTabVisibilityEditor(item);
+    }
+
+    if (
+      currentDocument.kind === "gia-single" &&
+      currentDocument.listItemSettings
+    ) {
       elements.singleItemWidth.value =
         currentDocument.listItemSettings.width;
       elements.singleItemHeight.value =
@@ -2861,9 +5882,11 @@ function renderGia() {
       elements.singleItemHeight.value = "";
       elements.singleItemSpacing.value = "";
     }
-  } else {
+  } else if (currentDocument.kind === "gia-deck") {
     elements.singleInspector.classList.add("hidden");
     elements.deckInspector.classList.remove("hidden");
+    elements.structureInspector.classList.add("hidden");
+
     elements.deckId.value = item.id;
     elements.deckType.checked = item.deckType;
     elements.deckTitle.value = item.title;
@@ -2871,19 +5894,79 @@ function renderGia() {
     elements.deckTag.value = item.tag;
     elements.deckTagCode.value = item.internalTagCode;
     elements.deckDescription.value = item.description;
+  } else {
+    elements.singleInspector.classList.add("hidden");
+    elements.deckInspector.classList.add("hidden");
+    elements.structureInspector.classList.remove("hidden");
+
+    elements.structureName.value =
+      currentDocument.structureName;
+    elements.structureId.value =
+      currentDocument.structId;
+    elements.structureId.disabled =
+      !currentDocument.structureBuildMode;
+    elements.generateStructureIdButton.disabled =
+      !currentDocument.structureBuildMode;
+    elements.structureIdHex.textContent =
+      currentDocument.structureBuildMode
+        ? `${structureIdHex(currentDocument.structId)} · editable build ID`
+        : structureIdHex(currentDocument.structId);
+
+    elements.structureFieldName.value =
+      item.name;
+
+    elements.structureFieldType.innerHTML = "";
+
+    if (currentDocument.structureBuildMode) {
+      for (const optionInfo of structureGiaBuildTypeOptions()) {
+        const option = document.createElement("option");
+        option.value = String(optionInfo.typeCode);
+        option.textContent = optionInfo.name;
+        elements.structureFieldType.appendChild(option);
+      }
+
+      elements.structureFieldType.disabled = false;
+      elements.structureFieldType.value =
+        String(item.typeCode);
+
+      elements.structureGiaHelp.textContent =
+        "Build mode: add, duplicate, delete, reorder, rename, and change fields between the self-contained verified types. Struct / StructList are parsed but stay out of new generation until referenced-Structure dependency handling is generalized.";
+    } else {
+      const option = document.createElement("option");
+      option.value = String(item.typeCode);
+      option.textContent = item.typeName;
+      elements.structureFieldType.appendChild(option);
+      elements.structureFieldType.value =
+        String(item.typeCode);
+      elements.structureFieldType.disabled = true;
+
+      elements.structureGiaHelp.textContent =
+        "Imported Structure GIA: names can be changed safely while the existing Assemble / Split / Modify metadata is preserved. Build New Structure GIAs have full field-list editing.";
+    }
+
+    elements.structureFieldTypeCode.value =
+      item.typeCode;
+    elements.structureFieldDefault.value =
+      item.defaultValue;
+
+    renderStructureListEditor(item);
+
+    if (currentDocument.structureBuildMode) {
+      elements.structureGiaHelp.textContent =
+        "Build mode: edits apply automatically. Structure ID is generated in the observed 0x404xxxxx namespace and can be changed manually. List fields support inline default items. Vector3List item serialization is directly confirmed; primitive/reference list item serialization follows the same repeated-value pattern and should be import-tested.";
+    }
   }
 }
 
-function applyGiaFields(recordHistory = true) {
+function applyGiaFields(recordHistory = true,renderAfter = true) {
   if (!isGia() || selectedIndex === null) return true;
 
   const item = currentDocument.items[selectedIndex];
+  const beforeSignature = giaEditableSignature();
+  const beforeState =
+    recordHistory ? captureHistoryState() : null;
 
-  if (recordHistory) {
-    pushHistory("Edit GIA item");
-  }
-
-  if (currentDocument.kind === "gia-single") {
+  if (isFormalListGia()) {
     item.internalName =
       elements.singleInternalName.value.trim() ||
       "New Choice";
@@ -2923,7 +6006,16 @@ function applyGiaFields(recordHistory = true) {
       }
     }
 
-    if (currentDocument.listItemSettings) {
+    if (
+      currentDocument.kind === "gia-tab"
+    ) {
+      readTabVisibilityEditor(item);
+    }
+
+    if (
+      currentDocument.kind === "gia-single" &&
+      currentDocument.listItemSettings
+    ) {
       const width = Number(elements.singleItemWidth.value);
       const height = Number(elements.singleItemHeight.value);
       const spacing = Number(elements.singleItemSpacing.value);
@@ -2943,7 +6035,7 @@ function applyGiaFields(recordHistory = true) {
       currentDocument.listItemSettings.height = height;
       currentDocument.listItemSettings.spacing = spacing;
     }
-  } else {
+  } else if (currentDocument.kind === "gia-deck") {
     const iconId = Number(elements.deckIcon.value.trim());
     const tagCode = Number(elements.deckTagCode.value.trim());
 
@@ -2970,15 +6062,108 @@ function applyGiaFields(recordHistory = true) {
         "warning"
       );
     }
+  } else {
+    const structureName =
+      elements.structureName.value.trim();
+    const fieldName =
+      limitVariableName(
+        elements.structureFieldName.value.trim()
+      );
+
+    if (!structureName) {
+      alert("Structure Name cannot be empty.");
+      return false;
+    }
+
+    if (!fieldName) {
+      alert("Structure field name cannot be empty.");
+      return false;
+    }
+
+    currentDocument.structureName = structureName;
+    item.name = fieldName;
+    elements.structureFieldName.value = fieldName;
+
+    if (currentDocument.structureBuildMode) {
+      const structureIdText =
+        elements.structureId.value.trim();
+      const structureId = Number(structureIdText);
+
+      if (
+        !Number.isSafeInteger(structureId) ||
+        structureId <= 0 ||
+        structureId > 0xFFFFFFFF
+      ) {
+        alert(
+          "Structure ID must be a positive 32-bit integer."
+        );
+        return false;
+      }
+
+      currentDocument.structId = structureId;
+
+      if (
+        isEditableStructureListType(item.typeCode) &&
+        !readStructureListEditor(item)
+      ) {
+        return false;
+      }
+
+      const typeCode = Number(
+        elements.structureFieldType.value
+      );
+
+      if (!STRUCTURE_GIA_BUILD_TYPE_CODES.includes(typeCode)) {
+        alert(
+          "That Structure field type is not enabled for new GIA generation yet."
+        );
+        return false;
+      }
+
+      const previousTypeCode =
+        Number(item.typeCode);
+
+      item.typeCode = typeCode;
+      item.typeName =
+        structureGiaTypeName(typeCode);
+
+      if (previousTypeCode !== typeCode) {
+        item.listValues = [];
+      }
+
+      item.defaultValue =
+        isEditableStructureListType(typeCode)
+          ? structureListDefaultSummary(
+              typeCode,
+              item.listValues || []
+            )
+          : structureBuildDefaultLabel(typeCode);
+    }
   }
 
-  renderGia();
+  const changed =
+    beforeSignature !== giaEditableSignature();
+
+  if (recordHistory && changed) {
+    pushHistory("Edit GIA item",beforeState);
+  }
+
+  if (renderAfter) renderGia();
   updateMeta();
-  setStatus(`Updated item ${selectedIndex + 1}.`,"success");
+
+  if (changed) {
+    setStatus("Changes applied.","success");
+  }
+
   return true;
 }
 
 function addGiaItem() {
+  if (
+    currentDocument?.kind === "gia-structure" &&
+    !currentDocument.structureBuildMode
+  ) return;
+
   if (!isGia() || !currentDocument.items.length) return;
   if (selectedIndex !== null && !applyGiaFields(false)) return;
 
@@ -2997,9 +6182,15 @@ function addGiaItem() {
   renderGia();
   updateMeta();
   setStatus("Added a new serialized item.","success");
+  focusGiaPrimaryField(true);
 }
 
 function duplicateGiaItem() {
+  if (
+    currentDocument?.kind === "gia-structure" &&
+    !currentDocument.structureBuildMode
+  ) return;
+
   if (!isGia() || selectedIndex === null) return;
   if (!applyGiaFields(false)) return;
 
@@ -3008,14 +6199,18 @@ function duplicateGiaItem() {
   const source = currentDocument.items[selectedIndex];
   let copy;
 
-  if (currentDocument.kind === "gia-single") {
+  if (isFormalListGia()) {
     copy = {
       internalName:`${source.internalName} Copy`,
       values:deepCloneData(source.values),
       order:source.order + 1,
-      rawMessage:source.rawMessage
+      rawMessage:source.rawMessage,
+      containerVisibility:
+        deepCloneData(source.containerVisibility || {}),
+      controlVisibility:
+        deepCloneData(source.controlVisibility || {})
     };
-  } else {
+  } else if (currentDocument.kind === "gia-deck") {
     copy = {
       id:source.id + 1,
       deckType:source.deckType,
@@ -3026,6 +6221,18 @@ function duplicateGiaItem() {
       internalTagCode:source.internalTagCode,
       rawMessage:source.rawMessage
     };
+  } else {
+    copy = {
+      index:source.index + 1,
+      name:variableCopyName(source.name),
+      originalName:variableCopyName(source.name),
+      typeCode:source.typeCode,
+      typeName:source.typeName,
+      listValues:deepCloneData(
+        source.listValues || []
+      ),
+      defaultValue:source.defaultValue
+    };
   }
 
   currentDocument.items.splice(selectedIndex + 1,0,copy);
@@ -3033,28 +6240,42 @@ function duplicateGiaItem() {
   selectedIndex += 1;
   renderGia();
   updateMeta();
+  focusGiaPrimaryField(true);
 }
 
 async function copyGiaItem() {
+  if (
+    currentDocument?.kind === "gia-structure" &&
+    !currentDocument.structureBuildMode
+  ) return;
+
   if (!isGia() || selectedIndex === null) return;
   if (!applyGiaFields(false)) return;
 
   const source = currentDocument.items[selectedIndex];
 
-  if (currentDocument.kind === "gia-single") {
+  if (isFormalListGia()) {
     await copyEditorFragment(
-      "gia-single-item",
+      currentDocument.kind === "gia-tab"
+        ? "gia-tab-item"
+        : "gia-single-item",
       {
         internalName:source.internalName,
         values:deepCloneData(source.values),
         formalSignature:currentDocument.formalVariables.map(variable => ({
           name:variable.name,
           typeEnum:variable.typeEnum
-        }))
+        })),
+        containerVisibility:
+          deepCloneData(source.containerVisibility || {}),
+        controlVisibility:
+          deepCloneData(source.controlVisibility || {})
       },
-      "Single Choice item"
+      currentDocument.kind === "gia-tab"
+        ? "Tab item"
+        : "Single Choice item"
     );
-  } else {
+  } else if (currentDocument.kind === "gia-deck") {
     await copyEditorFragment(
       "gia-deck-item",
       {
@@ -3067,10 +6288,27 @@ async function copyGiaItem() {
       },
       "Deck Selector row"
     );
+  } else {
+    await copyEditorFragment(
+      "gia-structure-field",
+      {
+        name:source.name,
+        typeCode:source.typeCode,
+        listValues:deepCloneData(
+          source.listValues || []
+        )
+      },
+      "Structure field"
+    );
   }
 }
 
 async function pasteGiaItem() {
+  if (
+    currentDocument?.kind === "gia-structure" &&
+    !currentDocument.structureBuildMode
+  ) return;
+
   if (!isGia() || !currentDocument.items.length) return;
 
   const fragment = await readEditorFragment();
@@ -3083,7 +6321,11 @@ async function pasteGiaItem() {
   const expectedKind =
     currentDocument.kind === "gia-single"
       ? "gia-single-item"
-      : "gia-deck-item";
+      : currentDocument.kind === "gia-tab"
+        ? "gia-tab-item"
+        : currentDocument.kind === "gia-deck"
+        ? "gia-deck-item"
+        : "gia-structure-field";
 
   if (fragment.kind !== expectedKind) {
     alert(`Clipboard contains ${fragment.kind}, but this file expects ${expectedKind}.`);
@@ -3097,7 +6339,7 @@ async function pasteGiaItem() {
 
   let item = currentDocument.cloneItem(template);
 
-  if (currentDocument.kind === "gia-single") {
+  if (isFormalListGia()) {
     const sourceSignature = fragment.data.formalSignature || [];
     const targetSignature = currentDocument.formalVariables.map(
       variable => ({
@@ -3113,7 +6355,7 @@ async function pasteGiaItem() {
     if (!signaturesMatch) {
       alert(
         "The copied List Item uses a different Formal Variable definition. " +
-        "Paste it into a Single Choice Window with matching variables."
+        "Paste it into a component with matching Floating Page Formal Variables."
       );
       return;
     }
@@ -3127,12 +6369,28 @@ async function pasteGiaItem() {
       )
     );
 
-    item.rawMessage = updateSingleChoiceItem(
-      item,
-      currentDocument.formalVariables,
-      template.rawMessage
-    );
-  } else {
+    item.containerVisibility =
+      currentDocument.kind === "gia-tab"
+        ? deepCloneData(fragment.data.containerVisibility || {})
+        : {};
+    item.controlVisibility =
+      currentDocument.kind === "gia-tab"
+        ? deepCloneData(fragment.data.controlVisibility || {})
+        : {};
+
+    item.rawMessage =
+      currentDocument.kind === "gia-tab"
+        ? updateTabItem(
+            item,
+            currentDocument.formalVariables,
+            template.rawMessage
+          )
+        : updateSingleChoiceItem(
+            item,
+            currentDocument.formalVariables,
+            template.rawMessage
+          );
+  } else if (currentDocument.kind === "gia-deck") {
     item.deckType = Boolean(fragment.data.deckType);
     item.iconId = Number(fragment.data.iconId ?? item.iconId);
     item.title = fragment.data.title ?? "Pasted Deck";
@@ -3140,6 +6398,37 @@ async function pasteGiaItem() {
     item.tag = fragment.data.tag ?? "";
     item.internalTagCode = Number(fragment.data.internalTagCode ?? 0);
     item.rawMessage = updateDeckEntry(item);
+  } else {
+    const typeCode = Number(fragment.data.typeCode ?? 6);
+
+    if (!STRUCTURE_GIA_BUILD_TYPE_CODES.includes(typeCode)) {
+      alert(
+        "The copied Structure field uses a type that is not enabled for new Structure generation."
+      );
+      return;
+    }
+
+    item.name =
+      variableCopyName(
+        fragment.data.name || "Pasted Field"
+      );
+    item.originalName = item.name;
+    item.typeCode = typeCode;
+    item.typeName =
+      structureGiaTypeName(typeCode);
+    item.listValues =
+      isEditableStructureListType(typeCode)
+        ? deepCloneData(
+            fragment.data.listValues || []
+          )
+        : [];
+    item.defaultValue =
+      isEditableStructureListType(typeCode)
+        ? structureListDefaultSummary(
+            typeCode,
+            item.listValues
+          )
+        : structureBuildDefaultLabel(typeCode);
   }
 
   const insertAt =
@@ -3154,9 +6443,15 @@ async function pasteGiaItem() {
   renderGia();
   updateMeta();
   setStatus("Pasted item after the current row.","success");
+  focusGiaPrimaryField(true);
 }
 
 function deleteGiaIndex(index,skipConfirmation = false) {
+  if (
+    currentDocument?.kind === "gia-structure" &&
+    !currentDocument.structureBuildMode
+  ) return;
+
   if (!isGia()) return;
 
   if (currentDocument.items.length <= 1) {
@@ -3191,9 +6486,12 @@ function deleteGiaIndex(index,skipConfirmation = false) {
   }
 
   const item = currentDocument.items[index];
-  const label = currentDocument.kind === "gia-single"
-    ? (item.displayName || item.internalName)
-    : item.title;
+  const label =
+    isFormalListGia()
+      ? (item.displayName || item.internalName)
+      : currentDocument.kind === "gia-deck"
+        ? item.title
+        : item.name;
 
   showConfirm("Delete item",`Delete "${label}"?`,performDelete);
 }
@@ -3204,6 +6502,11 @@ function deleteGiaItem() {
 }
 
 function moveGiaItem(direction) {
+  if (
+    currentDocument?.kind === "gia-structure" &&
+    !currentDocument.structureBuildMode
+  ) return;
+
   if (!isGia() || selectedIndex === null) return;
   if (!applyGiaFields(false)) return;
 
@@ -3823,7 +7126,10 @@ function renderRootStruct(root) {
     duplicate.addEventListener("click",() => {
       pushHistory("Duplicate Structure variable");
       const copiedMember = deepCloneData(member);
-      copiedMember.key = `${copiedMember.key || "Variable"} Copy`;
+      copiedMember.key =
+        variableCopyName(
+          copiedMember.key || "Variable"
+        );
       root.value.splice(index + 1,0,copiedMember);
       renderJson();
     });
@@ -3861,9 +7167,20 @@ function renderRootStruct(root) {
     const body = makeElement("div","json-card-body");
     const grid = makeElement("div","json-grid");
 
-    const nameInput = document.createElement("input");
+    const nameInput =
+      configureVariableNameInput(
+        document.createElement("input")
+      );
     nameInput.value = member.key ?? "";
-    bindInput(nameInput,value => member.key = value);
+    bindInput(
+      nameInput,
+      value => {
+        member.key = limitVariableName(value);
+        if (nameInput.value !== member.key) {
+          nameInput.value = member.key;
+        }
+      }
+    );
 
     grid.appendChild(makeField("Variable Name",nameInput));
 
@@ -3974,6 +7291,9 @@ async function openFile(file) {
 
     selectedIndex = isGia() && currentDocument.items.length ? 0 : null;
     batchDeleteMode = false;
+    giaFilterText = "";
+    elements.giaFilterInput.value = "";
+    elements.clearGiaFilterButton.disabled = true;
     resetHistory();
     switchView("editor");
     refreshModeUi();
@@ -4004,11 +7324,27 @@ function exportCurrent() {
 
   try {
     if (isGia()) {
-      if (selectedIndex !== null && !applyGiaFields()) return;
+      if (selectedIndex !== null && !applyGiaFields(true,false)) return;
 
       const bytes = currentDocument.buildFile();
-      const base = currentDocument.fileName.replace(/\.gia$/i,"");
-      downloadBytes(`${base} - edited.gia`,bytes);
+      const base =
+        currentDocument.kind === "gia-structure" &&
+        currentDocument.structureBuildMode
+          ? (
+              currentDocument.structureName
+                .trim()
+                .replace(/[\/:*?"<>|]+/g,"_") ||
+              "New Structure"
+            )
+          : currentDocument.fileName.replace(/\.gia$/i,"");
+
+      downloadBytes(
+        currentDocument.kind === "gia-structure" &&
+        currentDocument.structureBuildMode
+          ? `${base}.gia`
+          : `${base} - edited.gia`,
+        bytes
+      );
       setStatus(`Exported ${bytes.length.toLocaleString()} byte GIA.`,"success");
     } else {
       prepareJsonForExport(currentDocument);
@@ -4234,10 +7570,18 @@ async function importCsv(file) {
       }
 
       if (!items.length) {
-        throw new Error("No usable Single Choice rows.");
+        throw new Error(
+          currentDocument.kind === "gia-tab"
+            ? "No usable Tab rows."
+            : "No usable Single Choice rows."
+        );
       }
 
-      pushHistory("Import Single Choice CSV");
+      pushHistory(
+        currentDocument.kind === "gia-tab"
+          ? "Import Tab CSV"
+          : "Import Single Choice CSV"
+      );
       currentDocument.items = items;
       currentDocument.normalize();
       selectedIndex = 0;
@@ -4245,7 +7589,11 @@ async function importCsv(file) {
       updateMeta();
 
       setStatus(
-        `Imported ${items.length} Single Choice rows; ${created} created.`,
+        `Imported ${items.length} ${
+          currentDocument.kind === "gia-tab"
+            ? "Tab"
+            : "Single Choice"
+        } rows; ${created} created.`,
         "success"
       );
     }
@@ -4285,6 +7633,9 @@ function createNewSingleGia() {
   currentDocument = documentModel;
   selectedIndex = 0;
   batchDeleteMode = false;
+  giaFilterText = "";
+  elements.giaFilterInput.value = "";
+  elements.clearGiaFilterButton.disabled = true;
   resetHistory();
   switchView("editor");
   refreshModeUi();
@@ -4292,6 +7643,102 @@ function createNewSingleGia() {
 
   setStatus(
     "Created a Single-Choice Window from Miliastra's untouched default export. Add Formal Variables as needed.",
+    "success"
+  );
+}
+
+function createNewStructureGia() {
+  const bytes = base64ToBytes(STRUCTURE_BUILD_BASE_GIA);
+  const documentModel =
+    new StructureGiaDocument("New Structure.gia",bytes);
+
+  documentModel.structureBuildMode = true;
+  documentModel.structureName = "New Structure";
+  documentModel.structId =
+    generateStructureIdCandidate();
+  documentModel.items = [{
+    index:1,
+    name:"New Field",
+    originalName:"New Field",
+    typeCode:6,
+    typeName:"String",
+    listValues:[],
+    defaultValue:structureBuildDefaultLabel(6)
+  }];
+
+  documentModel.normalize();
+
+  currentDocument = documentModel;
+  selectedIndex = 0;
+  batchDeleteMode = false;
+  giaFilterText = "";
+  elements.giaFilterInput.value = "";
+  elements.clearGiaFilterButton.disabled = true;
+  resetHistory();
+  switchView("editor");
+  refreshModeUi();
+  setBatchDeleteMode(false);
+  renderGia();
+
+  requestAnimationFrame(() => {
+    elements.structureName.focus();
+    elements.structureName.select();
+  });
+
+  setStatus(
+    "Created a Structure GIA. Rename it, then add fields with Insert or the Add button.",
+    "success"
+  );
+}
+
+
+function createNewTabGia() {
+  const bytes = base64ToBytes(EMBEDDED_GIA.tab);
+
+  const documentModel = new TabDocument(
+    "New Tab Page.gia",
+    bytes
+  );
+
+  const template = documentModel.items[0];
+
+  documentModel.formalVariables = [];
+
+  documentModel.items = [{
+    internalName:"New Tab",
+    values:[],
+    order:1,
+    rawMessage:template.rawMessage,
+    containerVisibility:{},
+    controlVisibility:{}
+  }];
+
+  documentModel.visibilityTargets =
+    detectTabVisibilityTargets(
+      documentModel.payload,
+      documentModel.items
+    );
+
+  documentModel.normalize();
+
+  currentDocument = documentModel;
+  selectedIndex = 0;
+  batchDeleteMode = false;
+  giaFilterText = "";
+  elements.giaFilterInput.value = "";
+  elements.clearGiaFilterButton.disabled = true;
+  resetHistory();
+  switchView("editor");
+  refreshModeUi();
+  setBatchDeleteMode(false);
+
+  requestAnimationFrame(() => {
+    elements.singleInternalName.focus();
+    elements.singleInternalName.select();
+  });
+
+  setStatus(
+    "Created a plain Floating Interaction Page + Tab. Add Formal Variables and Tab items as needed.",
     "success"
   );
 }
@@ -4311,6 +7758,9 @@ function createNewDeckGia() {
   currentDocument = documentModel;
   selectedIndex = 0;
   batchDeleteMode = false;
+  giaFilterText = "";
+  elements.giaFilterInput.value = "";
+  elements.clearGiaFilterButton.disabled = true;
   resetHistory();
   switchView("editor");
   refreshModeUi();
@@ -4528,12 +7978,72 @@ elements.deleteButton.addEventListener("click",deleteGiaItem);
 elements.batchDeleteButton.addEventListener("click",() => {
   setBatchDeleteMode(!batchDeleteMode);
 });
+elements.giaFilterInput.addEventListener("input",() => {
+  setGiaFilter(elements.giaFilterInput.value);
+});
+elements.clearGiaFilterButton.addEventListener("click",() => {
+  setGiaFilter("");
+  elements.giaFilterInput.focus();
+});
 elements.upButton.addEventListener("click",() => moveGiaItem(-1));
 elements.downButton.addEventListener("click",() => moveGiaItem(1));
-elements.applyGiaButton.addEventListener("click",applyGiaFields);
+elements.applyGiaButton.addEventListener("click",() => applyGiaFields(true,true));
+elements.generateStructureIdButton.addEventListener(
+  "click",
+  applyGeneratedStructureId
+);
+elements.structureId.addEventListener("input",() => {
+  const value = Number(elements.structureId.value.trim());
+  elements.structureIdHex.textContent =
+    Number.isSafeInteger(value) && value > 0
+      ? `${structureIdHex(value)} · editable build ID`
+      : "Enter a positive 32-bit Structure ID";
+});
+elements.structureListAddButton.addEventListener(
+  "click",
+  addStructureListItem
+);
+
+elements.tabContainersShowAll.addEventListener("click",() =>
+  setTabVisibilityBulk("container",true)
+);
+elements.tabContainersHideAll.addEventListener("click",() =>
+  setTabVisibilityBulk("container",false)
+);
+elements.tabContainersClear.addEventListener("click",() =>
+  setTabVisibilityBulk("container",null)
+);
+elements.tabControlsShowAll.addEventListener("click",() =>
+  setTabVisibilityBulk("control",true)
+);
+elements.tabControlsHideAll.addEventListener("click",() =>
+  setTabVisibilityBulk("control",false)
+);
+elements.tabControlsClear.addEventListener("click",() =>
+  setTabVisibilityBulk("control",null)
+);
 elements.revertGiaButton.addEventListener("click",renderGia);
+
+document.querySelector(".inspector").addEventListener("change",event => {
+  if (!isGia() || selectedIndex === null) return;
+
+  if (
+    event.target.closest("#formalVariableEditor") ||
+    event.target.closest("#jsonRawInspector")
+  ) {
+    return;
+  }
+
+  // Most edits save without rebuilding the inspector so a row click is
+  // never swallowed. Changing a Structure field type is the exception:
+  // the inspector must immediately switch between scalar and list editors.
+  applyGiaFields(
+    true,
+    event.target === elements.structureFieldType
+  );
+});
 elements.addFormalVariableButton.addEventListener("click",() => {
-  if (!currentDocument || currentDocument.kind !== "gia-single") return;
+  if (!currentDocument || !isFormalListGia()) return;
 
   pushHistory("Add Formal Variable");
   currentDocument.addFormalVariable();
@@ -4548,6 +8058,8 @@ elements.validateJsonButton.addEventListener("click",validateCurrentJson);
 
 elements.newSingleButton.addEventListener("click",createNewSingleGia);
 elements.newDeckButton.addEventListener("click",createNewDeckGia);
+elements.newTabButton.addEventListener("click",createNewTabGia);
+elements.newStructureGiaButton.addEventListener("click",createNewStructureGia);
 elements.newDictButton.addEventListener("click",createNewDictionaryBuilder);
 elements.newStructButton.addEventListener("click",createNewStructBuilder);
 
@@ -4586,6 +8098,28 @@ elements.dropCard.addEventListener("drop",event => {
   if (file) openFile(file);
 });
 
+document.addEventListener("dragover",event => {
+  if (event.dataTransfer?.types?.includes("Files")) {
+    event.preventDefault();
+  }
+});
+
+document.addEventListener("drop",event => {
+  if (
+    event.target === elements.dropCard ||
+    elements.dropCard.contains(event.target)
+  ) {
+    return;
+  }
+
+  const [file] = event.dataTransfer?.files || [];
+
+  if (!file) return;
+
+  event.preventDefault();
+  openFile(file);
+});
+
 document.addEventListener("keydown",event => {
   const activeTag = document.activeElement?.tagName || "";
   const isTyping = ["INPUT","TEXTAREA","SELECT"].includes(activeTag);
@@ -4594,16 +8128,77 @@ document.addEventListener("keydown",event => {
   if (event.ctrlKey && key === "o") {
     event.preventDefault();
     elements.fileInput.click();
+    return;
   }
 
   if (event.ctrlKey && key === "s") {
     event.preventDefault();
     if (currentDocument) exportCurrent();
+    return;
+  }
+
+  if (event.ctrlKey && key === "n") {
+    event.preventDefault();
+    switchView("build");
+    return;
+  }
+
+  if (event.ctrlKey && key === "f" && isGia()) {
+    event.preventDefault();
+    elements.giaFilterInput.focus();
+    elements.giaFilterInput.select();
+    return;
+  }
+
+  if (
+    isTyping &&
+    isGia() &&
+    event.key === "Enter" &&
+    document.activeElement?.matches(
+      "[data-structure-list-index]"
+    )
+  ) {
+    event.preventDefault();
+
+    if (!applyGiaFields(true,false)) return;
+
+    const current =
+      document.activeElement;
+    const currentIndex = Number(
+      current.dataset.structureListIndex
+    );
+
+    const next = elements.structureListEditor.querySelector(
+      `[data-structure-list-index="${currentIndex + 1}"]`
+    );
+
+    if (next) {
+      next.focus();
+      if (typeof next.select === "function") {
+        next.select();
+      }
+    } else {
+      addStructureListItem();
+    }
+
+    return;
+  }
+
+  if (
+    isTyping &&
+    isGia() &&
+    event.ctrlKey &&
+    key === "enter"
+  ) {
+    event.preventDefault();
+    applyGiaFields(true,true);
+    return;
   }
 
   if (!isTyping && event.ctrlKey && !event.shiftKey && key === "z") {
     event.preventDefault();
     undoHistory();
+    return;
   }
 
   if (
@@ -4613,22 +8208,131 @@ document.addEventListener("keydown",event => {
   ) {
     event.preventDefault();
     redoHistory();
+    return;
   }
 
   if (!isTyping && isGia() && event.ctrlKey && key === "c") {
     event.preventDefault();
     copyGiaItem();
+    return;
   }
 
   if (!isTyping && isGia() && event.ctrlKey && key === "v") {
     event.preventDefault();
     pasteGiaItem();
+    return;
+  }
+
+  if (
+    !isTyping &&
+    isGia() &&
+    (
+      currentDocument.kind !== "gia-structure" ||
+      currentDocument.structureBuildMode
+    ) &&
+    event.ctrlKey &&
+    key === "d"
+  ) {
+    event.preventDefault();
+    duplicateGiaItem();
+    return;
+  }
+
+  if (
+    !isTyping &&
+    isGia() &&
+    (
+      currentDocument.kind !== "gia-structure" ||
+      currentDocument.structureBuildMode
+    ) &&
+    event.key === "Insert"
+  ) {
+    event.preventDefault();
+    addGiaItem();
+    return;
+  }
+
+  if (!isTyping && isJson() && event.key === "Insert") {
+    event.preventDefault();
+    elements.jsonAddRootButton.click();
+    return;
+  }
+
+  if (
+    !isTyping &&
+    isGia() &&
+    event.altKey &&
+    (event.key === "ArrowUp" || event.key === "ArrowDown")
+  ) {
+    event.preventDefault();
+
+    if (
+      currentDocument.kind !== "gia-structure" ||
+      currentDocument.structureBuildMode
+    ) {
+      moveGiaItem(event.key === "ArrowUp" ? -1 : 1);
+    }
+
+    return;
+  }
+
+  if (
+    !isTyping &&
+    isGia() &&
+    !event.altKey &&
+    (event.key === "ArrowUp" || event.key === "ArrowDown")
+  ) {
+    event.preventDefault();
+    selectAdjacentVisibleGia(
+      event.key === "ArrowUp" ? -1 : 1
+    );
+    return;
+  }
+
+  if (
+    !isTyping &&
+    isGia() &&
+    event.key === "Enter" &&
+    selectedIndex !== null
+  ) {
+    event.preventDefault();
+    focusGiaPrimaryField(true);
+    return;
+  }
+
+  if (
+    !isTyping &&
+    isGia() &&
+    event.key === "Delete" &&
+    (
+      currentDocument.kind !== "gia-structure" ||
+      currentDocument.structureBuildMode
+    )
+  ) {
+    event.preventDefault();
+    deleteGiaItem();
+    return;
+  }
+
+  if (event.key === "Escape") {
+    if (batchDeleteMode) {
+      event.preventDefault();
+      setBatchDeleteMode(false);
+      return;
+    }
+
+    if (isGia() && giaFilterText) {
+      event.preventDefault();
+      setGiaFilter("");
+      return;
+    }
   }
 });
 
 refreshModeUi();
 resetHistory();
 setBatchDeleteMode(false);
+setGiaFilter("");
 switchView("editor");
 </script>
 </body>
