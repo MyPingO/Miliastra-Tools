@@ -4,34 +4,25 @@ Browser-based utilities for editing and generating Miliastra `.gia` exports and 
 
 The GitHub Pages site is intentionally **client-side only**: opened files stay in the browser and are not uploaded by the editor.
 
-## Repository layout
+## Current layout
 
 ```text
-index.html          App shell / semantic layout
+index.html       GitHub Pages shell, product styling, and compatibility loader
 assets/
-  styles.css        Visual system, responsive layout, component styling
-  icon.svg          Site/app icon
-  js/
-    templates.js    Embedded validated GIA fixtures
-    core.js         Binary/protobuf helpers
-    gia.js          GIA parsers, models, serializers
-    json.js         JSON variable models and schema helpers
-    state.js        Shared app state, history, clipboard, DOM registry
-    ui-gia.js       GIA editor rendering and interactions
-    ui-json.js      Recursive JSON visual editor
-    io.js           Open/export + CSV import
-    builders.js     Build New workflows
-    events.js       Modal + global event wiring
+  icon.svg       Site/app icon
 ```
+
+The current editor engine is pinned to the last known-good v12 commit and loaded into the new shell. This keeps all validated GIA/JSON behavior unchanged while the interface can be iterated independently. The next structural cleanup is to extract that pinned engine into normal source modules in this repository, without changing serialization behavior.
 
 ## Development principles
 
 - Keep file processing local to the browser.
-- Preserve existing element IDs when changing layout; the editor scripts bind directly to them.
+- Preserve validated GIA/JSON serialization behavior during UI refactors.
 - Prefer automatic application of edits over confirmation clicks.
 - Keep destructive bulk actions explicit and undoable.
-- New GIA serializers should be based on validated exports rather than guessed binary fields.
+- Base new GIA serializers on validated exports rather than guessed binary fields.
 - Keep variable names within the known 20-character limit.
+- Optimize common editing flows for as few clicks as practical.
 
 ## Supported workflows
 
@@ -41,6 +32,11 @@ assets/
 - CSV import where supported.
 - Undo/redo, filtering, copy/paste, reordering, and keyboard shortcuts.
 
-## Iterating on the UI
+## Iteration plan
 
-The presentation layer is isolated in `assets/styles.css`, so most visual/UX work should not require touching parsing logic. Structural HTML changes belong in `index.html`; behavior changes should go into the matching file under `assets/js/`. Keep script order in `index.html` intact because the editor intentionally uses classic browser scripts with shared state.
+1. Keep the current pinned engine as the compatibility baseline.
+2. Refine layout, hierarchy, responsive behavior, and quick-edit workflows.
+3. Extract parsing/serialization, app state, GIA UI, JSON UI, builders, and I/O into separate source files.
+4. Add small regression fixtures for every validated GIA type before deeper serializer changes.
+
+This separation lets visual work move quickly without risking the binary formats we have already verified in Miliastra.
