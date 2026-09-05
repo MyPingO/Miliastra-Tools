@@ -6,9 +6,7 @@ The editor runs entirely in the browser. Files you open are processed locally an
 
 ## Live site
 
-GitHub Pages hosts the production editor for this repository.
-
-> The repository is being renamed to `Miliastra-UI-Tools`. After the rename, the production URL will be `https://mypingo.github.io/Miliastra-UI-Tools/`.
+https://mypingo.github.io/Miliastra-UI-Tools/
 
 ## Supported UI component workflows
 
@@ -20,7 +18,7 @@ GitHub Pages hosts the production editor for this repository.
 
 ### Status Display Area note
 
-Miliastra does not restore **Unit Status** links when a Status Display Area `.gia` is imported, including files originally exported by Miliastra. These links therefore must be configured manually in Miliastra after import. The site does not expose a Unit Status link editor.
+Miliastra does not restore **Unit Status** links when a Status Display Area `.gia` is imported, including files originally exported by Miliastra. These links must be configured manually in Miliastra after import, so the site does not expose a Unit Status link editor.
 
 Monitor Entity Variable references are supported and survive import in the tested cases.
 
@@ -48,7 +46,7 @@ User-facing type names are normalized for readability while the original Miliast
 - Copy / paste
 - Duplicate, reorder, and delete
 - CSV import where supported
-- Compact / comfortable editor density
+- Compact / Comfortable editor density
 - Keyboard shortcuts
 
 ## Compatibility and serialization
