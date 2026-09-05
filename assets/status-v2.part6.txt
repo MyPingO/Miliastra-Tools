@@ -34,38 +34,166 @@ function escapeHtml(value){
   return String(value).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 }
 
+/* Status Display property 66 exists even when it contains zero Formal Variables.
+   Prefer that exact property instead of requiring at least one definition. */
+findFormalContainer=function(root){
+  const exact=[];
+  walk(root,fs=>{
+    for(const field of fs){
+      if(field.n!==66||field.w!==2||!Array.isArray(field.v?.fields))continue;
+      const defs=all(field.v.fields,501,2).map(definitionInfo).filter(Boolean);
+      exact.push({field,defs});
+    }
+  });
+  if(exact.length)return exact.sort((a,b)=>b.defs.length-a.defs.length)[0];
+
+  const candidates=[];
+  walk(root,fs=>{
+    if(!f0(fs,501,0)||!f0(fs,502,0)||!f0(fs,503,0)||!f0(fs,504,2))return;
+    for(const field of fs){
+      if(field.w!==2||!Array.isArray(field.v?.fields))continue;
+      const defs=all(field.v.fields,501,2).map(definitionInfo).filter(Boolean);
+      if(defs.length)candidates.push({field,defs});
+    }
+  });
+  return candidates.length?candidates.sort((a,b)=>b.defs.length-a.defs.length)[0]:null;
+};
+
+function readMonitorReference(field){
+  if(!Array.isArray(field?.v?.fields))return{scope:'none',code:null,name:''};
+  const codeField=f0(field.v.fields,501,0),nameField=f0(field.v.fields,502,2);
+  const code=codeField?.v;
+  if(code==null||code===18446744073709551615n)return{scope:'none',code:null,name:''};
+  const numeric=Number(code);
+  return{
+    scope:numeric===100?'player':numeric===101?'stage':'unknown',
+    code:numeric,
+    name:str(nameField)??''
+  };
+}
+
+function setMonitorReference(scope,name){
+  const field=state?.model?.monitorField;
+  if(!field)return;
+  if(scope==='none'){
+    field.v.fields=[makeVarField(501,18446744073709551615n)];
+  }else{
+    const code=scope==='player'?100:scope==='stage'?101:null;
+    if(code==null)throw Error('Unsupported Monitor Entity Variable source');
+    field.v.fields=[
+      makeVarField(501,code),
+      {n:502,w:2,v:{raw:te.encode(String(name||'')),fields:null}}
+    ];
+  }
+  field.v.raw=new Uint8Array();
+  state.model.monitor=readMonitorReference(field);
+}
+
+/* Re-detect the model with the Monitor Entity Variable field attached.
+   The Status Item container itself contains field 503 = monitor reference. */
+findModel=function(payload){
+  const root=parse(payload);
+  if(!root)return null;
+  let best=null;
+  walk(root,fs=>{
+    const items=all(fs,501,2).map(field=>{
+      const item=itemInfo(field.v?.fields);
+      if(item)item.wrapperField=field;
+      return item;
+    }).filter(Boolean);
+    if(items.length<1)return;
+    if(!best||items.length>best.items.length)best={root,container:fs,items};
+  });
+  if(!best)return null;
+  walk(root,fs=>{
+    for(const field of fs){
+      if(field.w===2&&field.v?.fields===best.container)best.containerField=field;
+    }
+  });
+  const fc=findFormalContainer(root);
+  best.formalField=fc?.field||null;
+  best.formals=(fc?.defs||[]).sort((a,b)=>a.id-b.id);
+  best.monitorField=f0(best.container,503,2)||null;
+  best.monitor=readMonitorReference(best.monitorField);
+  best.items.forEach(item=>{
+    const maps=readPairMaps(item.dataField,best.formals);
+    item.values=maps.values;
+    item.valuePresent=maps.present;
+  });
+  return best;
+};
+
+/* The component name is user-editable and Miliastra may suffix it on import.
+   Detection therefore relies on the confirmed Status Item + monitor structure,
+   not the literal string "Status Display Area". */
+statusFile=function(bytes){
+  if(!(bytes instanceof Uint8Array)||bytes.length<24)return null;
+  const view=new DataView(bytes.buffer,bytes.byteOffset,20);
+  if(view.getUint32(16,false)!==bytes.length-24)return null;
+  const payload=bytes.slice(20,-4),m=findModel(payload);
+  if(!m||!m.monitorField)return null;
+  return{payload,m};
+};
+
+/* Add Monitor Entity Variable controls without baking a hidden reference into
+   Build New. Confirmed reference codes from editor-created samples:
+   100 = Player Themself, 101 = Stage, uint64 max = None. */
+const baseRender=render;
+render=function(){
+  baseRender();
+  const main=overlay?.querySelector('.sd-wrap');
+  const statusSection=overlay?.querySelector('[data-items]')?.closest('.sd-section');
+  if(!main||!statusSection)return;
+
+  const section=document.createElement('section');
+  section.className='sd-section';
+  section.innerHTML=`
+    <div class="sd-section-head">
+      <div>
+        <h3>Monitor Entity Variable</h3>
+        <div class="sd-note">Optional entity variable whose Unit Statuses this display monitors. Leave None for no reference.</div>
+      </div>
+    </div>
+    <div class="sd-card" style="display:grid;grid-template-columns:180px minmax(220px,1fr);gap:8px;align-items:center">
+      <select data-monitor-scope style="background:#0b121e;border:1px solid #30405a;color:#f4f7fb;border-radius:7px;padding:6px 8px">
+        <option value="none">None</option>
+        <option value="player">Player Themself</option>
+        <option value="stage">Stage</option>
+      </select>
+      <input data-monitor-name maxlength="30" placeholder="Variable name" style="background:#0b121e;border:1px solid #30405a;color:#f4f7fb;border-radius:7px;padding:6px 8px;min-width:0">
+    </div>`;
+  statusSection.insertAdjacentElement('beforebegin',section);
+
+  const scope=section.querySelector('[data-monitor-scope]');
+  const name=section.querySelector('[data-monitor-name]');
+  const monitor=state.model.monitor||{scope:'none',name:''};
+  if(monitor.scope==='unknown'){
+    const option=document.createElement('option');
+    option.value='unknown';
+    option.textContent=`Unknown source (${monitor.code})`;
+    scope.append(option);
+  }
+  scope.value=monitor.scope;
+  name.value=monitor.name||'';
+  name.disabled=scope.value==='none'||scope.value==='unknown';
+
+  scope.addEventListener('change',()=>{
+    if(scope.value==='unknown')return;
+    name.disabled=scope.value==='none';
+    if(scope.value==='none')name.value='';
+    setMonitorReference(scope.value,name.value);
+  });
+  name.addEventListener('input',()=>{
+    if(scope.value==='player'||scope.value==='stage')setMonitorReference(scope.value,name.value.slice(0,30));
+  });
+};
+
 function startEditor(file,bytes,buildNew=false){
   const found=statusFile(bytes);
   if(!found)return false;
   state={file,bytes,model:found.m};
-  if(buildNew){
-    const m=state.model;
-    const keep=m.items[0];
-    const itemWrappers=new Set(m.items.map(i=>i.wrapperField));
-    const keptContainer=m.container.filter(f=>!itemWrappers.has(f)||f===keep.wrapperField);
-    m.container.splice(0,m.container.length,...keptContainer);
-    if(m.containerField)m.containerField.v.raw=new Uint8Array();
-    m.items=[keep];
-
-    markName(keep,'New Status Item');
-    setItemId(keep,1);
-    setRefs(keep,[]);
-
-    /* Build New starts semantically empty. The embedded template only supplies
-       the component's required protobuf/UI skeleton; Formal Variables belong
-       entirely to the user. */
-    m.formals=[];
-    if(Array.isArray(m.formalField?.v?.fields)){
-      replaceRepeated(m.formalField.v.fields,501,2,[]);
-      m.formalField.v.raw=new Uint8Array();
-    }
-    keep.values=[];
-    keep.valuePresent=[];
-    if(Array.isArray(keep.dataField?.v?.fields)){
-      replaceRepeated(keep.dataField.v.fields,501,2,[]);
-      keep.dataField.v.raw=new Uint8Array();
-    }
-  }
+  /* Build New now uses an actual editor-created empty Status Display Area.
+     Do not synthesize names, variables, references, assets, or other defaults. */
   render();
   return true;
 }
@@ -98,10 +226,17 @@ function generateTemporaryUiIds(count,used){
   }
   return result;
 }
+
+/* Byte-for-byte template from an editor-created Empty Status Display Area.
+   It contains no Formal Variables, no Unit Status links, no Monitor Entity
+   Variable, and no auxiliary Icon/Asset Group components. */
+const EMPTY_BUILD_TEMPLATE='AAAEDAAAAAEAAAMmAAAAAwAAA/gKrgcKChABGAgg8K2FgAQaGUVtcHR5IFN0YXR1cyBEaXNwbGF5IEFyZWEoFZoBgQcK/gaoH/CthYAEsh8PWgeoH/CthYAEqB8BsB8Fsh8MYgSoH40QqB8CsB8Gsh8QcgiqHwXvrYWABKgfBLAfBMofJGIcqh8ZRW1wdHkgU3RhdHVzIERpc3BsYXkgQXJlYagfArAfD8ofLXIFegCoHwWoHwSwHxe6Hx1yBXoAqB8FqB8FsB8XuB8Bwh8KEAEYCCDwrYWABMofpwNaBWIAqB8CqB8BsB8Muh+WA2r9AmL3AqofV7IfVKofDw0AAIA/FQAAgD8dAACAP7IfDK0fAAAAP7UfAAAAP7ofDK0fAAAAP7UfAAAAP8IfAMofDK0fAAAWQ7UfAAAWQ9IfDK0fAAAAP7UfAAAAP+IfAKofWqgfAbIfVKofDw0AAIA/FQAAgD8dAACAP7IfDK0fAAAAP7UfAAAAP7ofDK0fAAAAP7UfAAAAP8IfAMofDK0fAAAWQ7UfAAAWQ9IfDK0fAAAAP7UfAAAAP+IfAKofWqgfArIfVKofDw0AAIA/FQAAgD8dAACAP7IfDK0fAAAAP7UfAAAAP7ofDK0fAAAAP7UfAAAAP8IfAMofDK0fAAAWQ7UfAAAWQ9IfDK0fAAAAP7UfAAAAP+IfAKofWqgfA7IfVKofDw0AAIA/FQAAgD8dAACAP7IfDK0fAAAAP7UfAAAAP7ofDK0fAAAAP7UfAAAAP8IfAMofDK0fAAAWQ7UfAAAWQ9IfDK0fAAAAP7UfAAAAP+IfALAfFMAfAagfAqgfBLAfDLgfAcIfChABGAgg8K2FgATKH1OaBACoHzWwH0i6H0eCBC6qHyuoHwGyHwdTdHlsZV8xuh8bqh8Ash8Auh8Awh8MrR8AAIA/tR8AAIA/yh8AqB83sB9IuB8Bwh8KEAEYCCDwrYWABMofW6IEAKgfNrAfSbofT4oENrofDK0fAABAQrUfAABAQsIfAMofDK0fAAAAQbUfAAAAQdIfDK0fAAAAQbUfAAAAQfAfAfgfAagfOLAfSbgfAcIfChABGAgg8K2FgATKHyWqBACoHzewH0q6HxmSBACoHzmwH0q4HwHCHwoQARgIIPCthYAEyh9isgQAqB84sB9Luh9WmgQ9qh8fqh8Qqh8NU3RhdHVzIEl0ZW1fMbIfALgfAcAfAcofALAf////////////AbofDKgf////////////AagfOrAfS7gfAcIfChABGAgg8K2FgAQaPjYwMTY3NTQ1Ny0xNzg4NTg4NjE2LTEwNzM3NDE5NTMtXEVtcHR5IFN0YXR1cyBEaXNwbGF5IEFyZWEuZ2lhKgU3LjAuMAAABnk=';
+const EMPTY_BUILD_TEMPLATE_UI_IDS=[1073829616];
+
 function createFreshStatusTemplateBytes(){
-  let bytes=b64bytes(BUILD_TEMPLATE);
-  const generated=generateTemporaryUiIds(BUILD_TEMPLATE_UI_IDS.length,BUILD_TEMPLATE_UI_IDS);
-  BUILD_TEMPLATE_UI_IDS.forEach((id,i)=>{
+  let bytes=b64bytes(EMPTY_BUILD_TEMPLATE);
+  const generated=generateTemporaryUiIds(EMPTY_BUILD_TEMPLATE_UI_IDS.length,EMPTY_BUILD_TEMPLATE_UI_IDS);
+  EMPTY_BUILD_TEMPLATE_UI_IDS.forEach((id,i)=>{
     bytes=replaceAllByteSequences(bytes,vi(id),vi(generated[i]));
   });
   return bytes;
@@ -117,13 +252,13 @@ function installBuildCard(){
   card.className='build-card';
   card.tabIndex=0;
   card.setAttribute('role','button');
-  card.innerHTML='<h3>Status Display Area</h3><p>Build status items, Unit Status links, and optional Formal Variables from scratch.</p><button id="newStatusDisplayButton" type="button">Status Display Area</button>';
+  card.innerHTML='<h3>Status Display Area</h3><p>Build from the editor-default empty component, then add only the data you choose.</p><button id="newStatusDisplayButton" type="button">Status Display Area</button>';
   const button=card.querySelector('button');
   const open=()=>{
     try{
       const bytes=createFreshStatusTemplateBytes();
       const file=new File([bytes],'New Status Display Area.gia',{type:'application/octet-stream'});
-      if(!startEditor(file,bytes,true))throw Error('Embedded Status Display Area template could not be parsed');
+      if(!startEditor(file,bytes,true))throw Error('Embedded empty Status Display Area template could not be parsed');
     }catch(err){
       console.error(err);
       if(typeof setStatus==='function')setStatus(`Could not create Status Display Area: ${err.message||err}`,'error');
