@@ -1,11 +1,17 @@
 (()=>{
 'use strict';
-const base='https://mypingo.github.io/Miliastra-Tools/assets/status-v2.part';
+const assetRoot=new URL('./assets/',window.parent.location.href);
+const base=new URL('status-v2.part',assetRoot).href;
 (async()=>{
   try{
+    document.title='Miliastra UI Tools · Data Editor';
+    try{window.parent.document.title='Miliastra UI Tools · Data Editor'}catch{}
+    const brand=document.querySelector('.brand');
+    if(brand)brand.textContent='Miliastra UI Tools';
+
     const [responses,labelRes]=await Promise.all([
-      Promise.all([1,2,3,4,5,6].map(i=>fetch(`${base}${i}.txt?v=20260905b`,{cache:'no-store'}))),
-      fetch('https://mypingo.github.io/Miliastra-Tools/assets/type-labels.js?v=20260905b',{cache:'no-store'})
+      Promise.all([1,2,3,4,5,6].map(i=>fetch(`${base}${i}.txt?v=20260905c`,{cache:'no-store'}))),
+      fetch(new URL('type-labels.js?v=20260905c',assetRoot),{cache:'no-store'})
     ]);
     if(responses.some(r=>!r.ok))throw new Error('Failed to load Status Display editor modules');
     let code=(await Promise.all(responses.map(r=>r.text()))).join('');
