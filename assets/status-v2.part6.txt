@@ -50,12 +50,19 @@ function startEditor(file,bytes,buildNew=false){
     markName(keep,'New Status Item');
     setItemId(keep,1);
     setRefs(keep,[]);
-    keep.values=m.formals.map(v=>defaultValue(v.typeEnum));
-    keep.valuePresent=m.formals.map((_,i)=>i===0);
 
+    /* Build New starts semantically empty. The embedded template only supplies
+       the component's required protobuf/UI skeleton; Formal Variables belong
+       entirely to the user. */
+    m.formals=[];
+    if(Array.isArray(m.formalField?.v?.fields)){
+      replaceRepeated(m.formalField.v.fields,501,2,[]);
+      m.formalField.v.raw=new Uint8Array();
+    }
+    keep.values=[];
+    keep.valuePresent=[];
     if(Array.isArray(keep.dataField?.v?.fields)){
-      replaceRepeated(keep.dataField.v.fields,501,2,
-        m.formals.length?[buildPair(m.formals[0],1,keep.values[0])]:[]);
+      replaceRepeated(keep.dataField.v.fields,501,2,[]);
       keep.dataField.v.raw=new Uint8Array();
     }
   }
@@ -110,7 +117,7 @@ function installBuildCard(){
   card.className='build-card';
   card.tabIndex=0;
   card.setAttribute('role','button');
-  card.innerHTML='<h3>Status Display Area</h3><p>Status items, Unit Status links, Formal Variables, and sparse per-item values.</p><button id="newStatusDisplayButton" type="button">Status Display Area</button>';
+  card.innerHTML='<h3>Status Display Area</h3><p>Build status items, Unit Status links, and optional Formal Variables from scratch.</p><button id="newStatusDisplayButton" type="button">Status Display Area</button>';
   const button=card.querySelector('button');
   const open=()=>{
     try{
